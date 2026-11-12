@@ -2,9 +2,9 @@
 
 A [Herdr](https://herdr.dev) mod that shows how full each agent's context window is, in the
 bottom status bar, at its left end, before the built-in `This computer · branch · N agents`
-text (`workspace-status`, unchanged). Each agent gets a compact entry: its mark, the share of the window in use, a short bar, and a color. The point
-is to see, at a glance, which agent is getting full enough that you would rather `/clear`
-than let it compact.
+text (`workspace-status`, unchanged). Each agent gets a compact entry: its mark, the share of
+the window in use, a short bar, and a color. The point is to see, at a glance, which agent is
+getting full enough that you would rather `/clear` than let it compact.
 
 ```
 ▣ 18% ▬  ▣ 42% ▬  ▣ 55% ▬  ◉ 30% ▬  ◉ 52% ▬  A n/a ▬   This computer  ● main  ● 6 agents · 1 needs you        ⌘⇧P commands
@@ -111,11 +111,12 @@ context of the response before it. After `/compact` it updates with the next res
 Only the last part of each file is read, with `tail -c` (256 KiB, growing to 2 MiB only when no
 usage record is in it), never a whole transcript. From each line only token counts, the model
 id and the record's timestamp are taken. Of a Codex rollout, the first 4 KiB are also read, with
-`head -c` (again each round only until its first line can be read), only to see whether its `session_meta` names a sub-agent; the text from
-`base_instructions` on is not looked at. Conversation text is not looked at, kept, logged or
-shown, and nothing is stored.
+`head -c` (again each round only until its first line can be read), only to see whether its
+`session_meta` names a sub-agent; the text from `base_instructions` on is not looked at.
+Conversation text is not looked at, kept, logged or shown, and nothing is stored.
 
-The only change it makes to Herdr is the `layout.resize` of its own block when `block` is set. Everything else runs through Herdr's `exec`, `hc` and `readTextFile`, by absolute program path
+The only change it makes to Herdr is the `layout.resize` of its own block when `block` is set.
+Everything else runs through Herdr's `exec`, `hc` and `readTextFile`, by absolute program path
 (`/usr/bin/tail`, `/usr/bin/head`, `/usr/bin/find`, `/bin/ps`, `/usr/sbin/lsof`: macOS locations,
 listed in `PROGRAMS` in `sources.js` for other systems), so nothing depends on the `PATH` or
 folder Herdr was started from.
@@ -163,7 +164,7 @@ asks Herdr to resize that block to fit its entries (`layout.resize`) whenever th
 640 px, so `workspace-status` always follows right after them. The `px` in the layout is only the
 width before the first read. If more agents than 640 px holds are running, the fullest ones stay
 and a `+N` shows how many are left out. Without `block`, the block keeps the width the layout
-gave it (94 px per agent plus 14 fits them all) and the entries sit at its left.
+gave it (91 px per agent plus 14 fits them all) and the entries sit at its left.
 
 ### Props
 
