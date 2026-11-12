@@ -1,3 +1,175 @@
 # herdr-context-meter
 
-Herdr mod: shows each agent's context window usage in the status bar.
+A [Herdr](https://herdr.dev) mod that shows how full each agent's context window is, in the
+bottom status bar next to the built-in agent count (`workspace-status`). Each agent gets a
+compact entry: its mark, the share of the window in use, a short bar, and a color. The point
+is to see, at a glance, which agent is getting full enough that you would rather `/clear`
+than let it compact.
+
+```
+This computer  ● 6 agents · 1 needs you                ⌘⇧P commands   ▣ 18% ▬  ▣ 42% ▬  ▣ 55% ▬  ◉ 30% ▬  ◉ 52% ▬  A n/a ▬
+```
+
+- The share turns yellow (the theme's `working` color) from **40%** and red (the theme's
+  `blocked` color) from **50%**. Both are props.
+- Hover an entry for the tab name, the model, and the token counts.
+- It only displays. It never clears or compacts anything.
+
+## What it shows, per agent
+
+| Agent | Context in use | Window | Matches the tool's own figure |
+|---|---|---|---|
+| Claude Code | `input + cache creation + cache read` tokens of the latest response (output not counted) | per-model table, below | Claude Code's status line (`used_percentage` is computed the same way) |
+| Codex | `last_token_usage.total_tokens` of the latest `token_count`, with Codex's 12,000-token baseline taken off both the usage and the window | `model_context_window` from the same record | Codex's `Context N% left` |
+| anything else (agy, pi, ...) | not read | | shown as `n/a`, hover says why |
+
+An agent whose number cannot be read **always shows `n/a`** with the reason on hover; a stale or
+guessed number is never shown as current.
+
+### Cross-check against each tool's own status line
+
+Compared at the same moment:
+
+| Tool | Record | Mod says | The tool says |
+|---|---|---|---|
+| Claude Code (Sonnet 5.5, 1M window) | 130,631 tokens | 13.1% used, 86.9% left | `87% context left` |
+| Claude Code (same session, later) | 195,093 tokens | 19.5% used, 80.5% left | `80% context left` |
+| Codex | 120,170 tokens, window 258,400 | 43.9% used, 56.1% left | `Context 56% left` |
+
+The plain ratio for the Codex record would be 46.5% used (53.5% left), which is not what
+Codex shows; with the baseline `(window - 12000 - (tokens - 12000)) / (window - 12000)` it is.
+The Codex record in that comparison is a sanitized sample kept as a test fixture
+(`test/fixtures/codex-rollout.jsonl`); the Claude figures were read from a live session.
+
+### Claude windows
+
+Claude transcripts do not record the window, so the mod has a table (`claudeWindow` in
+`mods/herdr-context-meter/usage.js`), following Claude Code's documentation:
+
+| Model | Window |
+|---|---|
+| Fable models, Sonnet 5 and later, Haiku 5 and later, Opus 4.7 and later | 1,000,000 |
+| ids ending in `[1m]` | 1,000,000 |
+| earlier models (Opus/Sonnet 4.6 and before, Claude 3, ...) | 200,000 |
+| an id the table cannot place | 200,000, marked "window assumed" on hover |
+
+The 1M variants of the earlier models are an opt-in that the transcript does not name. If an
+agent shows more than 200,000 tokens in use on such a model, the mod switches that agent to
+1,000,000 (and says so on hover). To change a window, use the `windows` prop.
+
+### Auto-compact: no marker is drawn
+
+Neither tool's auto-compact point can be read from its records, so no marker is drawn:
+
+- **Claude Code** compacts at about 967K tokens by default on 1M models and at the context limit
+  elsewhere, but the point moves with `autoCompactWindow`, `/autocompact`, `--autocompact`,
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW` and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, none of which is in
+  the transcript.
+- **Codex** compacts at 90% of the model's context window by default (a configured
+  `model_auto_compact_token_limit` is clamped to that), while the rollout's
+  `model_context_window` is the usable window, 95% of it for the model seen. So it lies
+  somewhere above 90% of the window the mod shows, and moves with the config.
+
+Either way it is far past the 40-50% where you would clear, so the thresholds are shares of the
+window, as shown.
+
+## How an agent is matched to its session
+
+The mod asks Herdr for the agents (`agents()`), then for each local one runs `hc get <address>
+--json`, which reports the agent's own process: its pid and its working folder. The terminal's
+own folder is not used, because it can differ from the agent's (a session in a linked worktree
+reports the repository's folder as the terminal's `cwd`).
+
+- **Claude Code.** `~/.claude/sessions/<pid>.json` names the running session; its transcript is
+  `~/.claude/projects/*/<session id>.jsonl`, found once and remembered. If there is no session
+  file (an older Claude Code), the newest transcript in the project folder of the agent's
+  working folder is used, but only when no other Claude terminal is in that folder.
+- **Codex.** Codex keeps its rollout file (`~/.codex/sessions/.../rollout-*.jsonl`) open, so the
+  mod finds the rollout through the process tree (`ps`, then `lsof`). That is exact: it works
+  when two Codex terminals share a folder and when the session's folder is a worktree. A resumed
+  session has its old rollout open too; the one with the newest `token_count` is used.
+
+Limits, all of which show `n/a` rather than a guess:
+
+- Terminals on another machine (`machine/t7`): their files are not here.
+- Claude without a session file and with several Claude terminals in one folder.
+- A Codex that does not have its rollout open, or a failed `ps` or `lsof`.
+- A new session that has not recorded a response yet.
+
+Both Claude's session file and Codex's open rollout are implementation details of those tools,
+not documented interfaces; if one changes, the entry reads `n/a` until the mod is updated.
+
+The numbers are as of the last completed response: during a long tool run the entry shows the
+context of the response before it. After `/compact` it updates with the next response; after
+`/clear` the next round finds the new session.
+
+## What is read, and what is not
+
+Only the last part of each file is read, with `tail -c` (256 KiB, growing to 2 MiB only when no
+usage record is in it), never a whole transcript. From each line only token counts, the model
+id and the record's timestamp are taken. Conversation text is not looked at, kept, logged or
+shown, and nothing is stored.
+
+Everything runs through Herdr's `exec`, `hc` and `readTextFile`, by absolute program path
+(`/usr/bin/tail`, `/usr/bin/find`, `/bin/ls`, `/bin/ps`, `/usr/sbin/lsof`: macOS locations,
+listed in `PROGRAMS` in `sources.js` for other systems), so nothing depends on the `PATH` or
+folder Herdr was started from.
+
+## Refreshing
+
+Every 5 seconds, one round at a time. Each program in a round has a 4-second limit. A round that
+has not finished after 20 seconds is given up on: the next tick starts a new one, and the old
+round's late answer is discarded, so one stuck read cannot freeze later updates. An entry whose
+last successful read is older than 35 seconds turns to `n/a` instead of showing an old number.
+(`hc get` has no time limit of its own; if it hangs, the round is abandoned the same way.)
+
+## Add it
+
+1. Copy `mods/herdr-context-meter/` into `~/.config/herdr-app/mods/` (the `.js` files and
+   `mod.json`; `jsconfig.json` is only for editing).
+2. Herdr's own layouts are read-only, so use a clone (the one you already have, or
+   `herdr-app do layout.clone '{"name":"main","as":"my-main"}'`).
+3. In the clone, find the `status` block, which shows `workspace-status`:
+
+   ```json
+   { "id": "status", "type": "block", "size": { "px": 28 }, "content": { "mod": "workspace-status" } }
+   ```
+
+   and turn it into a row holding that mod and this one:
+
+   ```json
+   {
+     "id": "status", "type": "row", "size": { "px": 28 },
+     "children": [
+       { "id": "status-info", "type": "block", "content": { "mod": "workspace-status" } },
+       { "id": "context-meter", "type": "block", "size": { "px": 560 },
+         "content": { "mod": "herdr-context-meter", "props": { "warn": 40, "critical": 50 } } }
+     ]
+   }
+   ```
+
+   The bar keeps its 28 px height. `workspace-status` fills its block, with the palette hint at
+   the right edge, so the meter sits at the right of the bar, after the hint.
+4. Check it: `herdr-app check ~/.config/herdr-app/mods/herdr-context-meter`.
+
+Size the block at about 95 px per agent plus 25: 560 fits six. With more agents than fit, the
+fullest ones stay and a `+N` shows how many are left out.
+
+### Props
+
+| Prop | Default | Meaning |
+|---|---|---|
+| `warn` | `40` | Share (percent of the window) from which the entry is yellow. |
+| `critical` | `50` | Share from which it is red. Must be above `warn`; if either is not a number from 0 to 100, or `warn` is not below `critical`, both fall back to the defaults. |
+| `windows` | `{}` | Window per Claude model, in tokens: `{ "claude-opus-5": 500000 }`. A key is a model id or its start; the longest match wins and beats the built-in table. Setting a smaller window than the real one makes the shares reach the thresholds sooner. |
+
+## Develop
+
+Plain JavaScript with `checkJs`, no build step. `usage.js` (reading and wording rules),
+`sources.js` (finding and tailing session files; all I/O through an injected host),
+`rounds.js` (the no-stall round tickets) are pure and tested; `main.js` is the view.
+
+```sh
+npm test            # node --test: matching, usage math on fixtures, thresholds, tail reader, no-stall
+npm run check       # herdr-app check (also writes gpui-kit.d.ts) and tsc
+```

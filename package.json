@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "check": "herdr-app check mods/herdr-context-meter && tsc -p mods/herdr-context-meter/jsconfig.json"
+  }
+}
