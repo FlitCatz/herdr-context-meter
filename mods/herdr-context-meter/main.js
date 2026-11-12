@@ -1,6 +1,6 @@
 import { View, div, image, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { agents, exec, hc, home, props, readTextFile, run, theme } from "herdr";
+import { agents, exec, hc, home, props, readTextFile, run, settings, theme } from "herdr";
 import { Rounds } from "./rounds.js";
 import { readAll } from "./sources.js";
 import { contentWidth, entryWidth, fit, levelOf, percentText, thresholds, tooltip } from "./usage.js";
@@ -150,7 +150,8 @@ export default class ContextMeter extends View {
     return h_flex().id("root").size_full().min_w(0).px(PAD).gap(GAP).items_center().justify_start().overflow_hidden()
       .bg(t.chrome).border_t(1).border_color(t.border).text_color(t.muted)
       .on_size_change((size, cx) => {
-        this.width = size.width;
+        // Reported at the person's zoom; widths here (and in the layout) are at zoom 1.
+        this.width = size.width / (Number(settings()?.zoom) || 1);
         cx.notify();
       })
       .children(shown.map(({ a, entry }) => this.entry(t, a, entry, limits, fresh)))
