@@ -291,6 +291,35 @@ test("Codex: instruction text that mentions the sub-agent keys does not make a s
   assert.equal(entry?.state === "ok" && entry.used, 120170);
 });
 
+test("Codex: a rollout whose first line is not written yet is left out, and checked again", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ctx-codex-"));
+  const guardian = join(dir, "rollout-guardian.jsonl");
+  const main = "/home/fake/.codex/sessions/2026/11/12/rollout-main.jsonl";
+  const host = fakeHost({ hc: { t5: terminal(100) }, ps: "100 1\n", lsof: `p100\nn${main}\nn${guardian}\n`, files: { [main]: CODEX, [guardian]: guardian } });
+  const shared = ctx();
+  // Opened by Codex, its session_meta not written yet.
+  writeFileSync(guardian, "");
+  const first = (await readAll(host, [codexAgent("t5")], shared)).get("t5");
+  assert.equal(first?.state === "ok" && first.used, 120170);
+  writeFileSync(guardian, readTail(CODEX_SUBAGENT));
+  const second = (await readAll(host, [codexAgent("t5")], shared)).get("t5");
+  assert.equal(second?.state === "ok" && second.used, 120170, "the guardian's newer count is not shown");
+  assert.equal(host.calls.filter((c) => c.command === PROGRAMS.head && c.args[2] === guardian).length, 2);
+  assert.ok(!host.calls.some((c) => c.command === PROGRAMS.tail && c.args[2] === guardian));
+});
+
+test("Codex: the only rollout, its first line half written, is n/a until it can be told apart", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ctx-codex-"));
+  const path = join(dir, "rollout-new.jsonl");
+  const host = fakeHost({ hc: { t5: terminal(100) }, ps: "100 1\n", lsof: `p100\nn${path}\n`, files: { [path]: path } });
+  const shared = ctx();
+  writeFileSync(path, readTail(CODEX).slice(0, 60));
+  assert.deepEqual((await readAll(host, [codexAgent("t5")], shared)).get("t5"), { state: "na", reason: "no main session file", kind: "codex" });
+  writeFileSync(path, readTail(CODEX));
+  const entry = (await readAll(host, [codexAgent("t5")], shared)).get("t5");
+  assert.equal(entry?.state === "ok" && entry.used, 120170);
+});
+
 test("Codex: the first line is read with a bounded head, once per file", async () => {
   const main = "/home/fake/.codex/sessions/2026/11/12/rollout-main.jsonl";
   const sub = "/home/fake/.codex/sessions/2026/11/12/rollout-sub.jsonl";

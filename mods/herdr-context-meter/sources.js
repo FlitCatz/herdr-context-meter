@@ -207,18 +207,22 @@ export async function openRollouts(host, codex) {
  * Whether a rollout belongs to a sub-agent thread (an approval guardian, a spawned agent),
  * from the keys of its session_meta line: only the part before `base_instructions` is looked
  * at, and only unescaped keys match, so instruction text cannot pass for one. Remembered per
- * file, which never changes role. Rejects when the file can't be read.
+ * file, which never changes role, once the read prefix is conclusive: the whole line, up to
+ * `base_instructions`, or the full HEAD_BYTES. Before that (Codex opens the file, then writes
+ * the line) the answer is null, not known yet. Rejects when the file can't be read.
  * @param {Host} host
  * @param {string} path
  * @param {Context} ctx
- * @returns {Promise<boolean>}
+ * @returns {Promise<boolean | null>}
  */
 async function isSubagentRollout(host, path, ctx) {
   const known = ctx.subagents.get(path);
   if (known !== undefined) return known;
   const ran = await host.exec(PROGRAMS.head, ["-c", String(HEAD_BYTES), path], { timeout: EXEC_TIMEOUT_MS });
   if (ran.code !== 0) throw new Error("unreadable");
-  const meta = ran.stdout.split("\n")[0].split('"base_instructions"')[0];
+  const text = ran.stdout;
+  if (!text.includes("\n") && !text.includes('"base_instructions"') && text.length < HEAD_BYTES) return null;
+  const meta = text.split("\n")[0].split('"base_instructions"')[0];
   const subagent = meta.includes('"parent_thread_id":"') || meta.includes('"source":{"subagent"');
   if (ctx.subagents.size > 100) ctx.subagents.clear();
   ctx.subagents.set(path, subagent);
@@ -227,7 +231,7 @@ async function isSubagentRollout(host, path, ctx) {
 
 /**
  * Of the rollout files a Codex process has open, leaving out sub-agents' (their counts are
- * another thread's context), the one with the newest token count: a resumed session has its
+ * another thread's context) and any not yet known to be the session's, the one with the newest token count: a resumed session has its
  * old one open too.
  * @param {Host} host
  * @param {string[]} open
@@ -237,7 +241,7 @@ async function isSubagentRollout(host, path, ctx) {
 async function readCodex(host, open, ctx) {
   if (open.length === 0) return missing("session file not found", "codex");
   const subagent = await Promise.all(open.map((path) => isSubagentRollout(host, path, ctx)));
-  const paths = open.filter((_, i) => !subagent[i]);
+  const paths = open.filter((_, i) => subagent[i] === false);
   if (paths.length === 0) return missing("no main session file", "codex");
   const recs = await Promise.all(paths.map((path) => tailParse(host, path, parseCodexTail)));
   const latest = recs.filter((r) => r !== null).sort((a, b) => b.at - a.at)[0];

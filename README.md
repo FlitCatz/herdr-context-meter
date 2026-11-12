@@ -85,7 +85,8 @@ The mod asks Herdr for the agents (`agents()`), then for each local one runs `hc
   when two Codex terminals share a folder and when the session's folder is a worktree. Codex
   also writes a rollout for each sub-agent thread (an approval guardian, a spawned agent),
   whose counts are that thread's context, not the session's; a rollout whose first line
-  (`session_meta`) has a `parent_thread_id` or a `subagent` source is left out. A resumed
+  (`session_meta`) has a `parent_thread_id` or a `subagent` source is left out, and so is one
+  whose first line is not fully written yet, until a later round can read it. A resumed
   session has its old rollout open too; of the rest, the one with the newest `token_count` is
   used.
 
@@ -94,7 +95,8 @@ Limits, all of which show `n/a` rather than a guess:
 - Terminals on another machine (`machine/t7`): their files are not here.
 - Claude without a session file (`~/.claude/sessions/<pid>.json`), as in an older Claude Code.
 - A Codex that does not have its rollout open, or a failed `ps` or `lsof`.
-- A Codex whose only open rollouts are sub-agents' ("no main session file").
+- A Codex whose only open rollouts are sub-agents', or not fully started yet ("no main session
+  file").
 - A new session that has not recorded a response yet.
 
 Both Claude's session file and Codex's open rollout are implementation details of those tools,
