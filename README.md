@@ -107,7 +107,7 @@ id and the record's timestamp are taken. Conversation text is not looked at, kep
 shown, and nothing is stored.
 
 Everything runs through Herdr's `exec`, `hc` and `readTextFile`, by absolute program path
-(`/usr/bin/tail`, `/usr/bin/find`, `/bin/ls`, `/bin/ps`, `/usr/sbin/lsof`: macOS locations,
+(`/usr/bin/tail`, `/usr/bin/find`, `/bin/ps`, `/usr/sbin/lsof`: macOS locations,
 listed in `PROGRAMS` in `sources.js` for other systems), so nothing depends on the `PATH` or
 folder Herdr was started from.
 

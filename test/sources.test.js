@@ -63,7 +63,7 @@ function fakeHost(spec = {}) {
   return host;
 }
 
-const terminal = (/** @type {number} */ pid, /** @type {string} */ cwd) => ({ cwd: "/somewhere/else", foreground: { pid, cwd } });
+const terminal = (/** @type {number} */ pid) => ({ foreground: { pid } });
 const ctx = () => ({ paths: new Map(), windows: {} });
 const claudeAgent = (/** @type {string} */ address) => ({ address, app: "claude-code", program: { name: "Claude Code" } });
 const codexAgent = (/** @type {string} */ address) => ({ address, app: "codex", program: { name: "Codex" } });
@@ -107,7 +107,7 @@ test("ps and lsof output: a process and its descendants, files by pid", () => {
 
 test("Claude: the session file names the session, whose transcript gives the share", async () => {
   const host = fakeHost({
-    hc: { t1: terminal(500, "/work/example-project") },
+    hc: { t1: terminal(500) },
     sessions: { 500: { pid: 500, sessionId: SESSION, cwd: "/work/example-project", name: "must not matter" } },
     find: `${transcriptPath}\n`,
     files: { [transcriptPath]: CLAUDE },
@@ -124,7 +124,7 @@ test("Claude: the session file names the session, whose transcript gives the sha
 
 test("Claude: the transcript path is found once per session, not on every round", async () => {
   const host = fakeHost({
-    hc: { t1: terminal(500, "/work/example-project") },
+    hc: { t1: terminal(500) },
     sessions: { 500: { pid: 500, sessionId: SESSION } },
     find: transcriptPath,
     files: { [transcriptPath]: CLAUDE },
@@ -137,7 +137,7 @@ test("Claude: the transcript path is found once per session, not on every round"
 
 test("Claude: a session file of another pid or with a bad id is not trusted", async () => {
   for (const session of [{ pid: 999, sessionId: SESSION }, { pid: 500, sessionId: "../../etc/passwd" }]) {
-    const host = fakeHost({ hc: { t1: terminal(500, "/work/example-project") }, sessions: { 500: session } });
+    const host = fakeHost({ hc: { t1: terminal(500) }, sessions: { 500: session } });
     const entry = (await readAll(host, [claudeAgent("t1")], ctx())).get("t1");
     assert.deepEqual(entry, { state: "na", reason: "no session file", kind: "claude" });
     assert.deepEqual(host.calls, [], "no search by an untrusted id");
@@ -146,7 +146,7 @@ test("Claude: a session file of another pid or with a bad id is not trusted", as
 
 test("Claude without a session file: n/a, and no transcript is looked for", async () => {
   const host = fakeHost({
-    hc: { t1: terminal(500, "/work/example-project") },
+    hc: { t1: terminal(500) },
     find: `${transcriptPath}\n`,
     files: { [transcriptPath]: CLAUDE },
   });
@@ -156,19 +156,19 @@ test("Claude without a session file: n/a, and no transcript is looked for", asyn
 });
 
 test("Claude: no transcript yet, or no usage in it, is n/a with the reason", async () => {
-  const none = fakeHost({ hc: { t1: terminal(500, "/w") }, sessions: { 500: { pid: 500, sessionId: SESSION } }, find: "" });
+  const none = fakeHost({ hc: { t1: terminal(500) }, sessions: { 500: { pid: 500, sessionId: SESSION } }, find: "" });
   assert.deepEqual((await readAll(none, [claudeAgent("t1")], ctx())).get("t1"), { state: "na", reason: "no transcript yet", kind: "claude" });
   const dir = mkdtempSync(join(tmpdir(), "ctx-claude-"));
   const path = join(dir, `${SESSION}.jsonl`);
   writeFileSync(path, '{"type":"user","message":{"role":"user","content":"hi"}}\n');
-  const empty = fakeHost({ hc: { t1: terminal(500, "/w") }, sessions: { 500: { pid: 500, sessionId: SESSION } }, find: path, files: { [path]: path } });
+  const empty = fakeHost({ hc: { t1: terminal(500) }, sessions: { 500: { pid: 500, sessionId: SESSION } }, find: path, files: { [path]: path } });
   assert.deepEqual((await readAll(empty, [claudeAgent("t1")], ctx())).get("t1"), { state: "na", reason: "no usage recorded yet", kind: "claude" });
 });
 
 test("Codex: the rollout the terminal's Codex has open, found through its process tree", async () => {
   const rollout = "/home/fake/.codex/sessions/2026/11/12/rollout-2026-11-12T16-17-04-aaaa.jsonl";
   const host = fakeHost({
-    hc: { t5: terminal(100, "/work/example-project") },
+    hc: { t5: terminal(100) },
     // 100 is the node wrapper; the codex binary is its grandchild and holds the file.
     ps: "100 1\n101 100\n102 101\n200 1\n",
     lsof: `p102\nn${rollout}\nn/home/fake/.codex/logs/other.log\np200\nn/home/fake/.codex/sessions/2026/11/12/rollout-zzz.jsonl\n`,
@@ -190,7 +190,7 @@ test("Codex: two terminals in the same folder each get their own session, one ps
   // Session b is at 50 000 tokens.
   writeFileSync(b, `${JSON.stringify({ timestamp: "2026-11-12T08:00:00Z", type: "event_msg", payload: { type: "token_count", info: { last_token_usage: { total_tokens: 50000 }, model_context_window: 258400 } } })}\n`);
   const host = fakeHost({
-    hc: { t5: terminal(100, "/work/policy-kernel"), t6: terminal(200, "/work/policy-kernel") },
+    hc: { t5: terminal(100), t6: terminal(200) },
     ps: "100 1\n101 100\n200 1\n201 200\n",
     lsof: `p101\nn${a}\np201\nn${b}\n`,
     files: { [a]: CODEX, [b]: b },
@@ -209,15 +209,15 @@ test("Codex: of several open rollouts (a resumed session) the one with the newes
   const fresh = join(dir, "rollout-new.jsonl");
   writeFileSync(old, record("2026-11-11T10:00:00Z", 200000));
   writeFileSync(fresh, record("2026-11-12T10:00:00Z", 30000));
-  const host = fakeHost({ hc: { t5: terminal(100, "/w") }, ps: "100 1\n", lsof: `p100\nn${old}\nn${fresh}\n`, files: { [old]: old, [fresh]: fresh } });
+  const host = fakeHost({ hc: { t5: terminal(100) }, ps: "100 1\n", lsof: `p100\nn${old}\nn${fresh}\n`, files: { [old]: old, [fresh]: fresh } });
   const entry = (await readAll(host, [codexAgent("t5")], ctx())).get("t5");
   assert.equal(entry?.state === "ok" && entry.used, 30000);
 });
 
 test("Codex: nothing open, or a failed ps, is n/a with the reason", async () => {
-  const closed = fakeHost({ hc: { t5: terminal(100, "/w") }, ps: "100 1\n", lsof: "p100\nn/dev/null\n" });
+  const closed = fakeHost({ hc: { t5: terminal(100) }, ps: "100 1\n", lsof: "p100\nn/dev/null\n" });
   assert.deepEqual((await readAll(closed, [codexAgent("t5")], ctx())).get("t5"), { state: "na", reason: "session file not found", kind: "codex" });
-  const failing = fakeHost({ hc: { t5: terminal(100, "/w") }, execFails: (command) => (command === PROGRAMS.ps ? new Error("timed out") : null) });
+  const failing = fakeHost({ hc: { t5: terminal(100) }, execFails: (command) => (command === PROGRAMS.ps ? new Error("timed out") : null) });
   assert.deepEqual((await readAll(failing, [codexAgent("t5")], ctx())).get("t5"), { state: "na", reason: "read timed out", kind: "codex" });
 });
 
@@ -237,7 +237,7 @@ test("agents it cannot read are n/a, each with its own reason", async () => {
 test("one failing read does not take the others down, and no number is carried over", async () => {
   const good = `${HOME}/.claude/projects/-w/${SESSION}.jsonl`;
   const host = fakeHost({
-    hc: { t1: terminal(500, "/w"), t2: terminal(501, "/w") },
+    hc: { t1: terminal(500), t2: terminal(501) },
     sessions: { 500: { pid: 500, sessionId: SESSION }, 501: { pid: 501, sessionId: "99999999-2222-4333-8444-555555555555" } },
     find: good,
     files: { [good]: CLAUDE },
@@ -251,7 +251,7 @@ test("one failing read does not take the others down, and no number is carried o
 test("every program is run by absolute path with a time limit", async () => {
   const rollout = "/home/fake/.codex/sessions/2026/11/12/rollout-a.jsonl";
   const host = fakeHost({
-    hc: { t1: terminal(500, "/w"), t5: terminal(100, "/w") },
+    hc: { t1: terminal(500), t5: terminal(100) },
     sessions: { 500: { pid: 500, sessionId: SESSION } },
     find: transcriptPath,
     ps: "100 1\n",
