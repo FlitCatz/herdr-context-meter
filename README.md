@@ -156,7 +156,7 @@ fullest ones stay and a `+N` shows how many are left out.
 | Prop | Default | Meaning |
 |---|---|---|
 | `warn` | `40` | Share (percent of the window) from which the entry is yellow. |
-| `critical` | `50` | Share from which it is red. Must be above `warn`; if either is not a number from 0 to 100, or `warn` is not below `critical`, both fall back to the defaults. |
+| `critical` | `50` | Share from which it is red. A missing value, or one that is not a number above 0 and up to 100, falls back to its own default; if `warn` is then not below `critical`, both fall back to the defaults. |
 | `windows` | `{}` | Window per Claude model, in tokens: `{ "claude-opus-5": 500000 }`. A key is a model id or its start; the longest match wins and beats the built-in table. Setting a smaller window than the real one makes the shares reach the thresholds sooner. |
 
 ## Develop

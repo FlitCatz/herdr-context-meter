@@ -127,12 +127,20 @@ test("thresholds: defaults 40 and 50, layout props override, bad pairs fall back
 test("levels: yellow from warn, red from critical, both inclusive", () => {
   const limits = { warn: 40, critical: 50 };
   assert.equal(levelOf(0, limits), "ok");
-  assert.equal(levelOf(39.9, limits), "ok");
+  assert.equal(levelOf(39.4, limits), "ok");
   assert.equal(levelOf(40, limits), "warn");
-  assert.equal(levelOf(49.9, limits), "warn");
+  assert.equal(levelOf(49.4, limits), "warn");
   assert.equal(levelOf(50, limits), "critical");
   assert.equal(levelOf(100, limits), "critical");
   assert.equal(levelOf(30, { warn: 25, critical: 30 }), "critical");
+});
+
+test("levels follow the number shown: 39.6 reads 40% and is yellow, 49.7 reads 50% and is red", () => {
+  const limits = { warn: 40, critical: 50 };
+  assert.equal(percentText(39.6), "40%");
+  assert.equal(levelOf(39.6, limits), "warn");
+  assert.equal(percentText(49.7), "50%");
+  assert.equal(levelOf(49.7, limits), "critical");
 });
 
 test("fit keeps everything when it fits, else the fullest ones in order plus a count", () => {

@@ -187,8 +187,9 @@ function clampPct(n) {
 }
 
 /**
- * Warn and critical shares from the layout's props. Anything that is not a pair of numbers
- * between 0 and 100 with warn below critical falls back to the defaults, together.
+ * Warn and critical shares from the layout's props. A value that is missing or not a number
+ * above 0 and up to 100 falls back to its own default; both fall back to the defaults when
+ * warn is not below critical.
  * @param {{ warn?: unknown, critical?: unknown } | null | undefined} props
  */
 export function thresholds(props) {
@@ -200,12 +201,15 @@ export function thresholds(props) {
 }
 
 /**
+ * The level of the share as shown (rounded, as `percentText` prints it), so the color always
+ * matches the number.
  * @param {number} pct
  * @param {{ warn: number, critical: number }} limits
  * @returns {Level}
  */
 export function levelOf(pct, limits) {
-  return pct >= limits.critical ? "critical" : pct >= limits.warn ? "warn" : "ok";
+  const shown = Math.round(pct);
+  return shown >= limits.critical ? "critical" : shown >= limits.warn ? "warn" : "ok";
 }
 
 /** @param {number} pct */
