@@ -15,14 +15,13 @@ test("kindOf maps the app an agent reports", () => {
   assert.equal(kindOf(null), null);
 });
 
-test("Claude windows: native 1M models, 200K ones, [1m] variants", () => {
+test("Claude windows: native 1M models and 200K ones", () => {
   for (const id of ["claude-fable-5-2", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5", "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5-5-20270101"]) {
     assert.deepEqual(claudeWindow(id), { tokens: 1000000, assumed: false }, id);
   }
   for (const id of ["claude-opus-4-6", "claude-sonnet-4-6", "claude-sonnet-4-5-20250929", "claude-opus-4-1-20250805", "claude-3-5-sonnet-20241022", "claude-haiku-4-5"]) {
     assert.deepEqual(claudeWindow(id), { tokens: 200000, assumed: false }, id);
   }
-  assert.deepEqual(claudeWindow("claude-sonnet-4-6[1m]"), { tokens: 1000000, assumed: false });
   // An id the table cannot place gets the standard window, flagged as a guess.
   assert.deepEqual(claudeWindow("my-gateway-alias"), { tokens: 200000, assumed: true });
   assert.deepEqual(claudeWindow(null), { tokens: 200000, assumed: true });
@@ -99,8 +98,8 @@ test("Codex share used follows Codex's own 'Context N% left' (baseline taken off
   const used = codexUsedPct(120170, 258400);
   assert.ok(Math.abs(used - 43.9006) < 1e-3);
   assert.equal(100 - Math.round(used), 56);
-  // The plain ratio would say 46.5% used, 53.5% left: not what Codex shows.
-  assert.ok(Math.abs((120170 / 258400) * 100 - 46.5) < 0.05);
+  // The plain ratio would say 53% left: not what Codex shows.
+  assert.notEqual(100 - Math.round(used), 100 - Math.round((120170 / 258400) * 100));
   assert.equal(codexUsedPct(CODEX_BASELINE_TOKENS, 258400), 0);
   assert.equal(codexUsedPct(0, 258400), 0);
   assert.equal(codexUsedPct(900000, 258400), 100);

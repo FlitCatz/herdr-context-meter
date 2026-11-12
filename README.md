@@ -49,7 +49,6 @@ Claude transcripts do not record the window, so the mod has a table (`claudeWind
 | Model | Window |
 |---|---|
 | Fable models, Sonnet 5 and later, Haiku 5 and later, Opus 4.7 and later | 1,000,000 |
-| ids ending in `[1m]` | 1,000,000 |
 | earlier models (Opus/Sonnet 4.6 and before, Claude 3, ...) | 200,000 |
 | an id the table cannot place | 200,000, marked "window assumed" on hover |
 
@@ -76,14 +75,11 @@ window, as shown.
 ## How an agent is matched to its session
 
 The mod asks Herdr for the agents (`agents()`), then for each local one runs `hc get <address>
---json`, which reports the agent's own process: its pid and its working folder. The terminal's
-own folder is not used, because it can differ from the agent's (a session in a linked worktree
-reports the repository's folder as the terminal's `cwd`).
+--json`, which reports the agent's own process (`foreground`) and so its pid.
 
 - **Claude Code.** `~/.claude/sessions/<pid>.json` names the running session; its transcript is
-  `~/.claude/projects/*/<session id>.jsonl`, found once and remembered. If there is no session
-  file (an older Claude Code), the newest transcript in the project folder of the agent's
-  working folder is used, but only when no other Claude terminal is in that folder.
+  `~/.claude/projects/*/<session id>.jsonl`, found once and remembered. Without that session
+  file the entry is `n/a` ("no session file").
 - **Codex.** Codex keeps its rollout file (`~/.codex/sessions/.../rollout-*.jsonl`) open, so the
   mod finds the rollout through the process tree (`ps`, then `lsof`). That is exact: it works
   when two Codex terminals share a folder and when the session's folder is a worktree. A resumed
@@ -92,7 +88,7 @@ reports the repository's folder as the terminal's `cwd`).
 Limits, all of which show `n/a` rather than a guess:
 
 - Terminals on another machine (`machine/t7`): their files are not here.
-- Claude without a session file and with several Claude terminals in one folder.
+- Claude without a session file (`~/.claude/sessions/<pid>.json`), as in an older Claude Code.
 - A Codex that does not have its rollout open, or a failed `ps` or `lsof`.
 - A new session that has not recorded a response yet.
 
@@ -142,7 +138,7 @@ last successful read is older than 35 seconds turns to `n/a` instead of showing 
      "id": "status", "type": "row", "size": { "px": 28 },
      "children": [
        { "id": "status-info", "type": "block", "content": { "mod": "workspace-status" } },
-       { "id": "context-meter", "type": "block", "size": { "px": 560 },
+       { "id": "context-meter", "type": "block", "size": { "px": 600 },
          "content": { "mod": "herdr-context-meter", "props": { "warn": 40, "critical": 50 } } }
      ]
    }
@@ -152,7 +148,7 @@ last successful read is older than 35 seconds turns to `n/a` instead of showing 
    the right edge, so the meter sits at the right of the bar, after the hint.
 4. Check it: `herdr-app check ~/.config/herdr-app/mods/herdr-context-meter`.
 
-Size the block at about 95 px per agent plus 25: 560 fits six. With more agents than fit, the
+Size the block at 94 px per agent plus 14: 578 fits six, 600 leaves a little room. With more agents than fit, the
 fullest ones stay and a `+N` shows how many are left out.
 
 ### Props

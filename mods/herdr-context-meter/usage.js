@@ -34,7 +34,7 @@ const finite = (/** @type {unknown} */ n) => typeof n === "number" && Number.isF
  * @returns {"claude" | "codex" | null}
  */
 export function kindOf(app) {
-  if (app === "claude-code" || app === "claude") return "claude";
+  if (app === "claude-code") return "claude";
   if (app === "codex") return "codex";
   return null;
 }
@@ -72,7 +72,7 @@ export function claudeWindow(model, overrides = {}) {
     if (id.startsWith(key) && key.length > best.length && finite(overrides[key]) && /** @type {number} */ (overrides[key]) > 0) best = key;
   }
   if (best) return { tokens: /** @type {number} */ (overrides[best]), assumed: false };
-  if (id.endsWith("[1m]") || nativeMillion(id)) return { tokens: MILLION_WINDOW, assumed: false };
+  if (nativeMillion(id)) return { tokens: MILLION_WINDOW, assumed: false };
   const known = CLAUDE_MODEL.test(id) || id.startsWith("claude-3");
   return { tokens: STANDARD_WINDOW, assumed: !known };
 }

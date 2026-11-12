@@ -4,7 +4,7 @@ import { mkdtempSync, openSync, readSync, closeSync, statSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  EXEC_TIMEOUT_MS, PROGRAMS, TAIL_SIZES, encodeCwd, parseLsof, readAll, tailParse, withDescendants,
+  EXEC_TIMEOUT_MS, PROGRAMS, TAIL_SIZES, parseLsof, readAll, tailParse, withDescendants,
 } from "../mods/herdr-context-meter/sources.js";
 import { parseCodexTail } from "../mods/herdr-context-meter/usage.js";
 
@@ -29,7 +29,7 @@ function tail(/** @type {string} */ path, /** @type {number} */ bytes) {
  * A host with fake programs. `files` maps the path a program is asked for to a real file;
  * `calls` records every program run, so tests can check what was (not) asked.
  * @param {{ hc?: Record<string, unknown>, sessions?: Record<string, unknown>, files?: Record<string, string>,
- *   ps?: string, lsof?: string, find?: string, ls?: string, execFails?: (command: string, args: string[]) => Error | null }} [spec]
+ *   ps?: string, lsof?: string, find?: string, execFails?: (command: string, args: string[]) => Error | null }} [spec]
  */
 function fakeHost(spec = {}) {
   /** @type {{ command: string, args: string[], timeout?: number }[]} */
@@ -48,7 +48,6 @@ function fakeHost(spec = {}) {
       if (command === PROGRAMS.ps) return { code: 0, stdout: spec.ps ?? "", stderr: "" };
       if (command === PROGRAMS.lsof) return { code: 1, stdout: spec.lsof ?? "", stderr: "" };
       if (command === PROGRAMS.find) return { code: 0, stdout: spec.find ?? "", stderr: "" };
-      if (command === PROGRAMS.ls) return { code: 0, stdout: spec.ls ?? "", stderr: "" };
       throw new Error(`unexpected program ${command}`);
     },
     async hc(/** @type {string[]} */ args) {
@@ -69,13 +68,6 @@ const ctx = () => ({ paths: new Map(), windows: {} });
 const claudeAgent = (/** @type {string} */ address) => ({ address, app: "claude-code", program: { name: "Claude Code" } });
 const codexAgent = (/** @type {string} */ address) => ({ address, app: "codex", program: { name: "Codex" } });
 const transcriptPath = `${HOME}/.claude/projects/-work-example-project/${SESSION}.jsonl`;
-
-test("encodeCwd matches Claude Code's project folder names", () => {
-  assert.equal(
-    encodeCwd("/Users/dev-r/.treehouse/herdr-context-meter-2215a8/1/herdr-context-meter"),
-    "-Users-dev-r--treehouse-herdr-context-meter-2215a8-1-herdr-context-meter",
-  );
-});
 
 test("tail reader: only a bounded slice from the end, growing until a record is found", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ctx-tail-"));
@@ -145,40 +137,27 @@ test("Claude: the transcript path is found once per session, not on every round"
 
 test("Claude: a session file of another pid or with a bad id is not trusted", async () => {
   for (const session of [{ pid: 999, sessionId: SESSION }, { pid: 500, sessionId: "../../etc/passwd" }]) {
-    const host = fakeHost({ hc: { t1: terminal(500, "/work/example-project") }, sessions: { 500: session }, ls: "" });
+    const host = fakeHost({ hc: { t1: terminal(500, "/work/example-project") }, sessions: { 500: session } });
     const entry = (await readAll(host, [claudeAgent("t1")], ctx())).get("t1");
-    assert.equal(entry?.state, "na");
-    assert.ok(!host.calls.some((c) => c.command === PROGRAMS.find), "no search by an untrusted id");
+    assert.deepEqual(entry, { state: "na", reason: "no session file", kind: "claude" });
+    assert.deepEqual(host.calls, [], "no search by an untrusted id");
   }
 });
 
-test("Claude without a session file: the newest transcript of the folder when it is unambiguous", async () => {
-  const dir = `${HOME}/.claude/projects/-work-example-project`;
+test("Claude without a session file: n/a, and no transcript is looked for", async () => {
   const host = fakeHost({
     hc: { t1: terminal(500, "/work/example-project") },
-    ls: `${SESSION}.jsonl\nolder.jsonl\nsubfolder\n`,
-    files: { [`${dir}/${SESSION}.jsonl`]: CLAUDE },
+    find: `${transcriptPath}\n`,
+    files: { [transcriptPath]: CLAUDE },
   });
   const entry = (await readAll(host, [claudeAgent("t1")], ctx())).get("t1");
-  assert.equal(entry?.state === "ok" && entry.used, 130631);
-  assert.deepEqual(host.calls.find((c) => c.command === PROGRAMS.ls)?.args, ["-t", dir]);
-});
-
-test("Claude without a session file, two terminals in one folder: n/a rather than a guess", async () => {
-  const host = fakeHost({
-    hc: { t1: terminal(500, "/work/example-project"), t2: terminal(501, "/work/example-project") },
-    ls: `${SESSION}.jsonl\n`,
-    files: { [`${HOME}/.claude/projects/-work-example-project/${SESSION}.jsonl`]: CLAUDE },
-  });
-  const entries = await readAll(host, [claudeAgent("t1"), claudeAgent("t2")], ctx());
-  for (const address of ["t1", "t2"]) {
-    assert.deepEqual(entries.get(address), { state: "na", reason: "several Claude terminals share this folder", kind: "claude" });
-  }
+  assert.deepEqual(entry, { state: "na", reason: "no session file", kind: "claude" });
+  assert.deepEqual(host.calls, [], "no find, ls or tail without a session file");
 });
 
 test("Claude: no transcript yet, or no usage in it, is n/a with the reason", async () => {
   const none = fakeHost({ hc: { t1: terminal(500, "/w") }, sessions: { 500: { pid: 500, sessionId: SESSION } }, find: "" });
-  assert.equal((await readAll(none, [claudeAgent("t1")], ctx())).get("t1")?.state === "na" && "no transcript yet", "no transcript yet");
+  assert.deepEqual((await readAll(none, [claudeAgent("t1")], ctx())).get("t1"), { state: "na", reason: "no transcript yet", kind: "claude" });
   const dir = mkdtempSync(join(tmpdir(), "ctx-claude-"));
   const path = join(dir, `${SESSION}.jsonl`);
   writeFileSync(path, '{"type":"user","message":{"role":"user","content":"hi"}}\n');

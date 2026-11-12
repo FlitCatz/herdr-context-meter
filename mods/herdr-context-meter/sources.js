@@ -19,13 +19,12 @@ import {
  * }} Host
  * @typedef {{ address: string, app: string | null, program?: { name?: string } }} AgentRef
  * @typedef {{ paths: Map<string, string>, windows: Record<string, unknown> }} Context
- * @typedef {{ pid: number, cwd: string }} Foreground
+ * @typedef {{ pid: number }} Foreground
  */
 
 export const PROGRAMS = {
   tail: "/usr/bin/tail",
   find: "/usr/bin/find",
-  ls: "/bin/ls",
   ps: "/bin/ps",
   lsof: "/usr/sbin/lsof",
 };
@@ -39,9 +38,6 @@ export const TAIL_SIZES = [256 * 1024, 1024 * 1024, 2 * 1024 * 1024];
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ROLLOUT = /\/rollout-[^/]+\.jsonl$/;
-
-/** Claude Code's project folder name for a working folder. @param {string} cwd */
-export const encodeCwd = (cwd) => cwd.replace(/[^A-Za-z0-9]/g, "-");
 
 /** For `.catch`: a failed optional read is just absent. @returns {null} */
 const none = () => null;
@@ -70,8 +66,8 @@ export async function tailParse(host, path, parse) {
 }
 
 /**
- * The agent's own process and folder, from `hc get`: `foreground` is the program running in
- * the terminal now (the agent), whose folder can differ from the terminal's.
+ * The agent's own process, from `hc get`: `foreground` is the program running in the
+ * terminal now (the agent).
  * @param {Host} host
  * @param {string} address
  * @returns {Promise<Foreground | null>}
@@ -80,7 +76,7 @@ export async function foregroundOf(host, address) {
   const ran = await host.hc(["get", address, "--json"]);
   if (ran.code !== 0) return null;
   const fg = JSON.parse(ran.stdout)?.foreground;
-  return Number.isInteger(fg?.pid) && typeof fg?.cwd === "string" ? { pid: fg.pid, cwd: fg.cwd } : null;
+  return Number.isInteger(fg?.pid) ? { pid: fg.pid } : null;
 }
 
 // ---- Claude ---------------------------------------------------------------------------
@@ -104,40 +100,30 @@ async function claudeSessionId(host, pid) {
  * @param {Host} host
  * @param {Foreground} fg
  * @param {Context} ctx
- * @param {Map<string, number>} sharing live Claude terminals per folder
  * @returns {Promise<{ path: string } | { reason: string }>}
  */
-async function claudeTranscript(host, fg, ctx, sharing) {
+async function claudeTranscript(host, fg, ctx) {
   const sessionId = await claudeSessionId(host, fg.pid).catch(none);
-  if (sessionId) {
-    const known = ctx.paths.get(sessionId);
-    if (known) return { path: known };
-    const ran = await host.exec(
-      PROGRAMS.find, [`${host.home}/.claude/projects`, "-maxdepth", "2", "-name", `${sessionId}.jsonl`], { timeout: EXEC_TIMEOUT_MS });
-    const path = ran.stdout.split("\n")[0].trim();
-    if (!path) return { reason: "no transcript yet" };
-    if (ctx.paths.size > 100) ctx.paths.clear();
-    ctx.paths.set(sessionId, path);
-    return { path };
-  }
-  // No session file (an older Claude Code): the newest transcript of the folder, but only when
-  // no other Claude terminal is in it, since the newest one could be that terminal's instead.
-  if ((sharing.get(fg.cwd) ?? 0) > 1) return { reason: "several Claude terminals share this folder" };
-  const dir = `${host.home}/.claude/projects/${encodeCwd(fg.cwd)}`;
-  const ran = await host.exec(PROGRAMS.ls, ["-t", dir], { timeout: EXEC_TIMEOUT_MS });
-  const newest = ran.code === 0 ? ran.stdout.split("\n").find((name) => name.endsWith(".jsonl")) : undefined;
-  return newest ? { path: `${dir}/${newest}` } : { reason: "no transcript found" };
+  if (!sessionId) return { reason: "no session file" };
+  const known = ctx.paths.get(sessionId);
+  if (known) return { path: known };
+  const ran = await host.exec(
+    PROGRAMS.find, [`${host.home}/.claude/projects`, "-maxdepth", "2", "-name", `${sessionId}.jsonl`], { timeout: EXEC_TIMEOUT_MS });
+  const path = ran.stdout.split("\n")[0].trim();
+  if (!path) return { reason: "no transcript yet" };
+  if (ctx.paths.size > 100) ctx.paths.clear();
+  ctx.paths.set(sessionId, path);
+  return { path };
 }
 
 /**
  * @param {Host} host
  * @param {Foreground} fg
  * @param {Context} ctx
- * @param {Map<string, number>} sharing
  * @returns {Promise<Entry>}
  */
-async function readClaude(host, fg, ctx, sharing) {
-  const found = await claudeTranscript(host, fg, ctx, sharing);
+async function readClaude(host, fg, ctx) {
+  const found = await claudeTranscript(host, fg, ctx);
   if ("reason" in found) return missing(found.reason, "claude");
   try {
     const rec = await tailParse(host, found.path, parseClaudeTail);
@@ -256,15 +242,11 @@ export async function readAll(host, agents, ctx) {
     foreground.set(agent.address, await foregroundOf(host, agent.address).catch(none));
   }));
 
-  /** @type {Map<string, number>} */
-  const sharing = new Map();
   /** @type {Map<string, Foreground>} */
   const codex = new Map();
   for (const { agent, kind } of supported) {
     const fg = foreground.get(agent.address);
-    if (!fg) continue;
-    if (kind === "claude") sharing.set(fg.cwd, (sharing.get(fg.cwd) ?? 0) + 1);
-    else codex.set(agent.address, fg);
+    if (fg && kind === "codex") codex.set(agent.address, fg);
   }
   /** @type {Map<string, string[]> | null} */
   let rollouts = null;
@@ -278,7 +260,7 @@ export async function readAll(host, agents, ctx) {
     const fg = foreground.get(agent.address);
     try {
       if (!fg) entries.set(agent.address, missing("no agent process found", kind));
-      else if (kind === "claude") entries.set(agent.address, await readClaude(host, fg, ctx, sharing));
+      else if (kind === "claude") entries.set(agent.address, await readClaude(host, fg, ctx));
       else if (!rollouts) entries.set(agent.address, missing(rolloutsFailure, kind));
       else entries.set(agent.address, await readCodex(host, rollouts.get(agent.address) ?? []));
     } catch (err) {
