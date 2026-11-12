@@ -1,13 +1,13 @@
 # herdr-context-meter
 
 A [Herdr](https://herdr.dev) mod that shows how full each agent's context window is, in the
-bottom status bar next to the built-in agent count (`workspace-status`). Each agent gets a
-compact entry: its mark, the share of the window in use, a short bar, and a color. The point
+bottom status bar, at its left end, before the built-in `This computer · branch · N agents`
+text (`workspace-status`, unchanged). Each agent gets a compact entry: its mark, the share of the window in use, a short bar, and a color. The point
 is to see, at a glance, which agent is getting full enough that you would rather `/clear`
 than let it compact.
 
 ```
-This computer  ● 6 agents · 1 needs you                ⌘⇧P commands   ▣ 18% ▬  ▣ 42% ▬  ▣ 55% ▬  ◉ 30% ▬  ◉ 52% ▬  A n/a ▬
+▣ 18% ▬  ▣ 42% ▬  ▣ 55% ▬  ◉ 30% ▬  ◉ 52% ▬  A n/a ▬   This computer  ● main  ● 6 agents · 1 needs you        ⌘⇧P commands
 ```
 
 - The share turns yellow (the theme's `working` color) from **40%** and red (the theme's
@@ -110,12 +110,12 @@ context of the response before it. After `/compact` it updates with the next res
 
 Only the last part of each file is read, with `tail -c` (256 KiB, growing to 2 MiB only when no
 usage record is in it), never a whole transcript. From each line only token counts, the model
-id and the record's timestamp are taken. Of a Codex rollout, the first 4 KiB are also read
-once, with `head -c`, only to see whether its `session_meta` names a sub-agent; the text from
+id and the record's timestamp are taken. Of a Codex rollout, the first 4 KiB are also read, with
+`head -c` (again each round only until its first line can be read), only to see whether its `session_meta` names a sub-agent; the text from
 `base_instructions` on is not looked at. Conversation text is not looked at, kept, logged or
 shown, and nothing is stored.
 
-Everything runs through Herdr's `exec`, `hc` and `readTextFile`, by absolute program path
+The only change it makes to Herdr is the `layout.resize` of its own block when `block` is set. Everything else runs through Herdr's `exec`, `hc` and `readTextFile`, by absolute program path
 (`/usr/bin/tail`, `/usr/bin/head`, `/usr/bin/find`, `/bin/ps`, `/usr/sbin/lsof`: macOS locations,
 listed in `PROGRAMS` in `sources.js` for other systems), so nothing depends on the `PATH` or
 folder Herdr was started from.
@@ -140,30 +140,36 @@ last successful read is older than 35 seconds turns to `n/a` instead of showing 
    { "id": "status", "type": "block", "size": { "px": 28 }, "content": { "mod": "workspace-status" } }
    ```
 
-   and turn it into a row holding that mod and this one:
+   and turn it into a row with the meter first and `workspace-status` unchanged after it:
 
    ```json
    {
      "id": "status", "type": "row", "size": { "px": 28 },
      "children": [
-       { "id": "status-info", "type": "block", "content": { "mod": "workspace-status" } },
-       { "id": "context-meter", "type": "block", "size": { "px": 600 },
-         "content": { "mod": "herdr-context-meter", "props": { "warn": 40, "critical": 50 } } }
+       { "id": "context-meter", "type": "block", "size": { "px": 120 },
+         "content": { "mod": "herdr-context-meter", "props": { "block": "context-meter" } } },
+       { "id": "status-info", "type": "block", "content": { "mod": "workspace-status" } }
      ]
    }
    ```
 
-   The bar keeps its 28 px height. `workspace-status` fills its block, with the palette hint at
-   the right edge, so the meter sits at the right of the bar, after the hint.
+   The bar keeps its 28 px height. `workspace-status` keeps its text and its palette hint at the
+   right edge; it just starts where the meter ends.
 4. Check it: `herdr-app check ~/.config/herdr-app/mods/herdr-context-meter`.
 
-Size the block at 94 px per agent plus 14: 578 fits six, 600 leaves a little room. With more agents than fit, the
-fullest ones stay and a `+N` shows how many are left out.
+A layout can only give a block a fixed width, but the meter's width depends on how many agents
+there are. With the `block` prop set to the block's own id (`"context-meter"` above), the meter
+asks Herdr to resize that block to fit its entries (`layout.resize`) whenever they change, up to
+640 px, so `workspace-status` always follows right after them. The `px` in the layout is only the
+width before the first read. If more agents than 640 px holds are running, the fullest ones stay
+and a `+N` shows how many are left out. Without `block`, the block keeps the width the layout
+gave it (94 px per agent plus 14 fits them all) and the entries sit at its left.
 
 ### Props
 
 | Prop | Default | Meaning |
 |---|---|---|
+| `block` | none | This block's own id in the layout. When set, the meter resizes that block to fit its entries (see above). |
 | `warn` | `40` | Share (percent of the window) from which the entry is yellow. |
 | `critical` | `50` | Share from which it is red. A missing value, or one that is not a number above 0 and up to 100, falls back to its own default; if `warn` is then not below `critical`, both fall back to the defaults. |
 | `windows` | `{}` | Window per Claude model, in tokens: `{ "claude-opus-5": 500000 }`. A key is a model id or its start; the longest match wins and beats the built-in table. Setting a smaller window than the real one makes the shares reach the thresholds sooner. |

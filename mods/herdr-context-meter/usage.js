@@ -240,20 +240,47 @@ export function tooltip(tab, label, entry) {
 }
 
 /**
- * Entries that fit in `slots`. When there are more, the fullest ones stay (they are what the
- * bar is for), in their original order, and `hidden` counts the rest.
+ * The width of one entry: its mark, its text and its bar, with the gaps between them. The text is
+ * a few characters of small type.
+ * @param {number} chars the length of the entry's text
+ * @param {{ mark: number, bar: number, inner: number, char: number }} sizes
+ */
+export function entryWidth(chars, sizes) {
+  return sizes.mark + sizes.inner + Math.ceil(chars * sizes.char) + sizes.inner + sizes.bar;
+}
+
+/**
+ * How wide a row of entries is with its padding, so a block can be given exactly that.
+ * @param {number[]} chars the length of each entry's text
+ * @param {{ mark: number, bar: number, inner: number, between: number, pad: number, char: number }} sizes
+ */
+export function contentWidth(chars, sizes) {
+  const entries = chars.map((n) => entryWidth(n, sizes));
+  return 2 * sizes.pad + entries.reduce((a, b) => a + b, 0) + Math.max(0, chars.length - 1) * sizes.between;
+}
+
+/**
+ * The entries that fit in `room` px. When not all do, the fullest ones stay (they are what the
+ * bar is for), in their original order, with room kept for a "+N" chip; `hidden` counts the rest.
  * @template T
  * @param {T[]} items
  * @param {(item: T) => number} fill the share used, -1 when unknown
- * @param {number} slots
+ * @param {(item: T) => number} widthOf
+ * @param {number} room
+ * @param {{ between: number, chip: number }} sizes
  * @returns {{ shown: T[], hidden: number }}
  */
-export function fit(items, fill, slots) {
-  if (items.length <= slots) return { shown: items, hidden: 0 };
-  // The "+N" chip takes one slot.
-  const room = Math.max(0, slots - 1);
-  const keep = new Set(
-    items.map((item, i) => ({ i, fill: fill(item) })).sort((a, b) => b.fill - a.fill || a.i - b.i).slice(0, room).map((x) => x.i),
-  );
+export function fit(items, fill, widthOf, room, sizes) {
+  const total = (/** @type {number[]} */ widths, /** @type {boolean} */ chip) =>
+    widths.reduce((a, b) => a + b, 0) + sizes.between * Math.max(0, widths.length - 1 + (chip ? 1 : 0)) + (chip ? sizes.chip : 0);
+  if (total(items.map(widthOf), false) <= room) return { shown: items, hidden: 0 };
+  const keep = new Set();
+  const ranked = items.map((item, i) => ({ i, w: widthOf(item), fill: fill(item) })).sort((a, b) => b.fill - a.fill || a.i - b.i);
+  const widths = [];
+  for (const r of ranked) {
+    if (total([...widths, r.w], true) > room) break;
+    widths.push(r.w);
+    keep.add(r.i);
+  }
   return { shown: items.filter((_, i) => keep.has(i)), hidden: items.length - keep.size };
 }
