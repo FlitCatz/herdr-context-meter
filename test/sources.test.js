@@ -152,7 +152,7 @@ test("Claude without a session file: n/a, and no transcript is looked for", asyn
   });
   const entry = (await readAll(host, [claudeAgent("t1")], ctx())).get("t1");
   assert.deepEqual(entry, { state: "na", reason: "no session file", kind: "claude" });
-  assert.deepEqual(host.calls, [], "no find, ls or tail without a session file");
+  assert.deepEqual(host.calls, [], "no find or tail without a session file");
 });
 
 test("Claude: no transcript yet, or no usage in it, is n/a with the reason", async () => {
