@@ -34,6 +34,8 @@ export default class ContextMeter extends View {
     this.rounds = new Rounds(ROUND_LIMIT_MS);
     /** @type {Map<string, string>} session id -> transcript path, so `find` runs once per session */
     this.paths = new Map();
+    /** @type {Map<string, boolean>} rollout path -> whether it is a sub-agent's, so `head` runs once per file */
+    this.subagents = new Map();
     /** @type {{ at: number, entries: Map<string, Entry> }} */
     this.result = { at: 0, entries: new Map() };
     this.width = Infinity;
@@ -53,7 +55,7 @@ export default class ContextMeter extends View {
       /** @type {Map<string, Entry>} */
       let entries = new Map();
       try {
-        entries = await readAll(host, list, { paths: this.paths, windows: windows && typeof windows === "object" ? windows : {} });
+        entries = await readAll(host, list, { paths: this.paths, subagents: this.subagents, windows: windows && typeof windows === "object" ? windows : {} });
       } catch { /* every entry then reads n/a */ }
       // A round given up on before it finished comes back too late to be shown.
       if (!this.rounds.finish(ticket)) return;

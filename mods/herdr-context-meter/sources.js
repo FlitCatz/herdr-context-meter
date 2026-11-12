@@ -3,6 +3,7 @@
 //
 // Programs are run by absolute path, so nothing depends on the PATH Herdr was started with.
 // Every file is read with `tail -c`: a bounded slice from its end, never the whole transcript.
+// A Codex rollout's first line is also read, with `head -c`, only to tell a sub-agent's apart.
 
 import {
   claudeReading, codexReading, kindOf, missing, parseClaudeTail, parseCodexTail,
@@ -18,12 +19,13 @@ import {
  *   home: string,
  * }} Host
  * @typedef {{ address: string, app: string | null, program?: { name?: string } }} AgentRef
- * @typedef {{ paths: Map<string, string>, windows: Record<string, unknown> }} Context
+ * @typedef {{ paths: Map<string, string>, subagents: Map<string, boolean>, windows: Record<string, unknown> }} Context
  * @typedef {{ pid: number }} Foreground
  */
 
 export const PROGRAMS = {
   tail: "/usr/bin/tail",
+  head: "/usr/bin/head",
   find: "/usr/bin/find",
   ps: "/bin/ps",
   lsof: "/usr/sbin/lsof",
@@ -35,6 +37,9 @@ export const EXEC_TIMEOUT_MS = 4000;
 // A record is usually within the last few KB; a tool result in between can be large, so the
 // slice grows until a usage record is found, and stops at 2 MiB.
 export const TAIL_SIZES = [256 * 1024, 1024 * 1024, 2 * 1024 * 1024];
+
+// A rollout's first line, session_meta, names a sub-agent before its long base_instructions.
+export const HEAD_BYTES = 4096;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ROLLOUT = /\/rollout-[^/]+\.jsonl$/;
@@ -199,14 +204,41 @@ export async function openRollouts(host, codex) {
 }
 
 /**
- * Of the rollout files a Codex process has open (a resumed session has its old one too), the
- * one with the newest token count.
+ * Whether a rollout belongs to a sub-agent thread (an approval guardian, a spawned agent),
+ * from the keys of its session_meta line: only the part before `base_instructions` is looked
+ * at, and only unescaped keys match, so instruction text cannot pass for one. Remembered per
+ * file, which never changes role. Rejects when the file can't be read.
  * @param {Host} host
- * @param {string[]} paths
+ * @param {string} path
+ * @param {Context} ctx
+ * @returns {Promise<boolean>}
+ */
+async function isSubagentRollout(host, path, ctx) {
+  const known = ctx.subagents.get(path);
+  if (known !== undefined) return known;
+  const ran = await host.exec(PROGRAMS.head, ["-c", String(HEAD_BYTES), path], { timeout: EXEC_TIMEOUT_MS });
+  if (ran.code !== 0) throw new Error("unreadable");
+  const meta = ran.stdout.split("\n")[0].split('"base_instructions"')[0];
+  const subagent = meta.includes('"parent_thread_id":"') || meta.includes('"source":{"subagent"');
+  if (ctx.subagents.size > 100) ctx.subagents.clear();
+  ctx.subagents.set(path, subagent);
+  return subagent;
+}
+
+/**
+ * Of the rollout files a Codex process has open, leaving out sub-agents' (their counts are
+ * another thread's context), the one with the newest token count: a resumed session has its
+ * old one open too.
+ * @param {Host} host
+ * @param {string[]} open
+ * @param {Context} ctx
  * @returns {Promise<Entry>}
  */
-async function readCodex(host, paths) {
-  if (paths.length === 0) return missing("session file not found", "codex");
+async function readCodex(host, open, ctx) {
+  if (open.length === 0) return missing("session file not found", "codex");
+  const subagent = await Promise.all(open.map((path) => isSubagentRollout(host, path, ctx)));
+  const paths = open.filter((_, i) => !subagent[i]);
+  if (paths.length === 0) return missing("no main session file", "codex");
   const recs = await Promise.all(paths.map((path) => tailParse(host, path, parseCodexTail)));
   const latest = recs.filter((r) => r !== null).sort((a, b) => b.at - a.at)[0];
   return latest ? codexReading(latest) : missing("no usage recorded yet", "codex");
@@ -262,7 +294,7 @@ export async function readAll(host, agents, ctx) {
       if (!fg) entries.set(agent.address, missing("no agent process found", kind));
       else if (kind === "claude") entries.set(agent.address, await readClaude(host, fg, ctx));
       else if (!rollouts) entries.set(agent.address, missing(rolloutsFailure, kind));
-      else entries.set(agent.address, await readCodex(host, rollouts.get(agent.address) ?? []));
+      else entries.set(agent.address, await readCodex(host, rollouts.get(agent.address) ?? [], ctx));
     } catch (err) {
       entries.set(agent.address, missing(reasonOf(err), kind));
     }

@@ -4,13 +4,14 @@ import { mkdtempSync, openSync, readSync, closeSync, statSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  EXEC_TIMEOUT_MS, PROGRAMS, TAIL_SIZES, parseLsof, readAll, tailParse, withDescendants,
+  EXEC_TIMEOUT_MS, HEAD_BYTES, PROGRAMS, TAIL_SIZES, parseLsof, readAll, tailParse, withDescendants,
 } from "../mods/herdr-context-meter/sources.js";
 import { parseCodexTail } from "../mods/herdr-context-meter/usage.js";
 
 const fixturePath = (/** @type {string} */ name) => new URL(`./fixtures/${name}`, import.meta.url).pathname;
 const CLAUDE = fixturePath("claude-transcript.jsonl");
 const CODEX = fixturePath("codex-rollout.jsonl");
+const CODEX_SUBAGENT = fixturePath("codex-subagent-rollout.jsonl");
 const SESSION = "11111111-2222-4333-8444-555555555555";
 const HOME = "/home/fake";
 
@@ -21,6 +22,15 @@ function tail(/** @type {string} */ path, /** @type {number} */ bytes) {
   const buffer = Buffer.alloc(length);
   const fd = openSync(path, "r");
   readSync(fd, buffer, 0, length, size - length);
+  closeSync(fd);
+  return buffer.toString("utf8");
+}
+
+/** What `head -c N file` prints: the first N bytes. */
+function head(/** @type {string} */ path, /** @type {number} */ bytes) {
+  const buffer = Buffer.alloc(Math.min(statSync(path).size, bytes));
+  const fd = openSync(path, "r");
+  readSync(fd, buffer, 0, buffer.length, 0);
   closeSync(fd);
   return buffer.toString("utf8");
 }
@@ -45,6 +55,10 @@ function fakeHost(spec = {}) {
         const file = spec.files?.[args[2]];
         return file ? { code: 0, stdout: tail(file, Number(args[1])), stderr: "" } : { code: 1, stdout: "", stderr: "no such file" };
       }
+      if (command === PROGRAMS.head) {
+        const file = spec.files?.[args[2]];
+        return file ? { code: 0, stdout: head(file, Number(args[1])), stderr: "" } : { code: 1, stdout: "", stderr: "no such file" };
+      }
       if (command === PROGRAMS.ps) return { code: 0, stdout: spec.ps ?? "", stderr: "" };
       if (command === PROGRAMS.lsof) return { code: 1, stdout: spec.lsof ?? "", stderr: "" };
       if (command === PROGRAMS.find) return { code: 0, stdout: spec.find ?? "", stderr: "" };
@@ -64,7 +78,7 @@ function fakeHost(spec = {}) {
 }
 
 const terminal = (/** @type {number} */ pid) => ({ foreground: { pid } });
-const ctx = () => ({ paths: new Map(), windows: {} });
+const ctx = () => ({ paths: new Map(), subagents: new Map(), windows: {} });
 const claudeAgent = (/** @type {string} */ address) => ({ address, app: "claude-code", program: { name: "Claude Code" } });
 const codexAgent = (/** @type {string} */ address) => ({ address, app: "codex", program: { name: "Codex" } });
 const transcriptPath = `${HOME}/.claude/projects/-work-example-project/${SESSION}.jsonl`;
@@ -219,6 +233,86 @@ test("Codex: nothing open, or a failed ps, is n/a with the reason", async () => 
   assert.deepEqual((await readAll(closed, [codexAgent("t5")], ctx())).get("t5"), { state: "na", reason: "session file not found", kind: "codex" });
   const failing = fakeHost({ hc: { t5: terminal(100) }, execFails: (command) => (command === PROGRAMS.ps ? new Error("timed out") : null) });
   assert.deepEqual((await readAll(failing, [codexAgent("t5")], ctx())).get("t5"), { state: "na", reason: "read timed out", kind: "codex" });
+});
+
+/** The lines of a fixture after its first (session_meta) line. */
+const afterMeta = (/** @type {string} */ path) => readTail(path).split("\n").slice(1).join("\n");
+
+/**
+ * A sub-agent's session_meta shaped like codex-cli 0.167.0 writes it: parent_thread_id early,
+ * more keys, the sub-agent source at about 1.8 KB, then some 20 KB of base_instructions.
+ */
+function bigSubagentMeta() {
+  return JSON.stringify({
+    timestamp: "2026-11-12T07:41:02.275Z", type: "session_meta",
+    payload: {
+      id: "01a1ce7e-011a-7340-afe6-5bb98b786d87", forked_from_id: null,
+      parent_thread_id: "01a1ce9e-034f-7f60-ab6b-1ae16853a9ba",
+      cwd: "/work/example-project", originator: "codex_cli_rs", cli_version: "0.167.0",
+      model_provider: "openai", git: { branch: "main", repository_url: "https://example.invalid/repo", padding: "g".repeat(1450) },
+      source: { subagent: { other: "guardian" } },
+      base_instructions: { text: "You are a reviewer. ".repeat(1000) },
+    },
+  });
+}
+
+test("Codex: a sub-agent's rollout, open beside the session's with a newer count, is left out", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ctx-codex-"));
+  const guardian = join(dir, "rollout-guardian.jsonl");
+  const meta = bigSubagentMeta();
+  assert.ok(meta.indexOf('"source":{"subagent"') > 1500 && meta.length > 20000, "realistic shape");
+  writeFileSync(guardian, `${meta}\n${afterMeta(CODEX_SUBAGENT)}`);
+  const main = "/home/fake/.codex/sessions/2026/11/12/rollout-main.jsonl";
+  const host = fakeHost({ hc: { t5: terminal(100) }, ps: "100 1\n", lsof: `p100\nn${main}\nn${guardian}\n`, files: { [main]: CODEX, [guardian]: guardian } });
+  const entry = (await readAll(host, [codexAgent("t5")], ctx())).get("t5");
+  assert.equal(entry?.state === "ok" && entry.used, 120170);
+  assert.ok(!host.calls.some((c) => c.command === PROGRAMS.tail && c.args[2] === guardian), "the sub-agent's counts are not read");
+});
+
+test("Codex: only sub-agent rollouts open is n/a, whichever key marks them", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ctx-codex-"));
+  const spawned = join(dir, "rollout-spawned.jsonl");
+  const meta = { timestamp: "2026-11-12T07:41:02.275Z", type: "session_meta", payload: { id: "01a1ce7e-011a-7340-afe6-5bb98b786d88", padding: "p".repeat(1500), source: { subagent: { thread_spawn: { depth: 1 } } } } };
+  writeFileSync(spawned, `${JSON.stringify(meta)}\n${afterMeta(CODEX_SUBAGENT)}`);
+  for (const path of [CODEX_SUBAGENT, spawned]) {
+    const host = fakeHost({ hc: { t5: terminal(100) }, ps: "100 1\n", lsof: `p100\nn/x/rollout-sub.jsonl\n`, files: { "/x/rollout-sub.jsonl": path } });
+    assert.deepEqual((await readAll(host, [codexAgent("t5")], ctx())).get("t5"), { state: "na", reason: "no main session file", kind: "codex" });
+  }
+});
+
+test("Codex: instruction text that mentions the sub-agent keys does not make a session a sub-agent", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ctx-codex-"));
+  const main = join(dir, "rollout-main.jsonl");
+  const text = 'A sub-agent\'s meta has "parent_thread_id":"<id>" and "source":{"subagent":{}}. ';
+  const meta = { timestamp: "2026-11-12T07:17:04.734Z", type: "session_meta", payload: { id: "01a1ce9e-034f-7f60-ab6b-1ae16853a9ba", cwd: "/work/example-project", user_instructions: text, base_instructions: { text: text.repeat(300) } } };
+  writeFileSync(main, `${JSON.stringify(meta)}\n${afterMeta(CODEX)}`);
+  const host = fakeHost({ hc: { t5: terminal(100) }, ps: "100 1\n", lsof: `p100\nn${main}\n`, files: { [main]: main } });
+  const entry = (await readAll(host, [codexAgent("t5")], ctx())).get("t5");
+  assert.equal(entry?.state === "ok" && entry.used, 120170);
+});
+
+test("Codex: the first line is read with a bounded head, once per file", async () => {
+  const main = "/home/fake/.codex/sessions/2026/11/12/rollout-main.jsonl";
+  const sub = "/home/fake/.codex/sessions/2026/11/12/rollout-sub.jsonl";
+  const host = fakeHost({ hc: { t5: terminal(100) }, ps: "100 1\n", lsof: `p100\nn${main}\nn${sub}\n`, files: { [main]: CODEX, [sub]: CODEX_SUBAGENT } });
+  const shared = ctx();
+  await readAll(host, [codexAgent("t5")], shared);
+  const second = (await readAll(host, [codexAgent("t5")], shared)).get("t5");
+  assert.equal(second?.state === "ok" && second.used, 120170);
+  const heads = host.calls.filter((c) => c.command === PROGRAMS.head);
+  assert.equal(HEAD_BYTES, 4096);
+  assert.deepEqual(heads.map((c) => c.args).sort(), [["-c", "4096", main], ["-c", "4096", sub]]);
+  assert.ok(heads.every((c) => c.timeout === EXEC_TIMEOUT_MS));
+});
+
+test("Codex: a first line that cannot be read is n/a, not a guess", async () => {
+  const main = "/home/fake/.codex/sessions/2026/11/12/rollout-main.jsonl";
+  const host = fakeHost({
+    hc: { t5: terminal(100) }, ps: "100 1\n", lsof: `p100\nn${main}\n`, files: { [main]: CODEX },
+    execFails: (command) => (command === PROGRAMS.head ? new Error("permission denied") : null),
+  });
+  assert.deepEqual((await readAll(host, [codexAgent("t5")], ctx())).get("t5"), { state: "na", reason: "read failed", kind: "codex" });
+  assert.ok(!host.calls.some((c) => c.command === PROGRAMS.tail));
 });
 
 test("agents it cannot read are n/a, each with its own reason", async () => {
