@@ -115,7 +115,9 @@ id and the record's timestamp are taken. Of a Codex rollout, the first 4 KiB are
 `session_meta` names a sub-agent; the text from `base_instructions` on is not looked at.
 Conversation text is not looked at, kept, logged or shown, and nothing is stored.
 
-The only change it makes to Herdr is the `layout.resize` of its own block when `block` is set.
+The only change it makes to Herdr is the `layout.resize` of its own block when `block` is set. Herdr
+saves that width in `layouts/.state/<layout>.json` and the mod rewrites it whenever the length of the
+entries' text changes (a new agent, a share going from 9% to 10%), so that file is touched at that rate.
 Everything else runs through Herdr's `exec`, `hc` and `readTextFile`, by absolute program path
 (`/usr/bin/tail`, `/usr/bin/head`, `/usr/bin/find`, `/bin/ps`, `/usr/sbin/lsof`: macOS locations,
 listed in `PROGRAMS` in `sources.js` for other systems), so nothing depends on the `PATH` or

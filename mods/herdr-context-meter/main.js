@@ -87,6 +87,16 @@ export default class ContextMeter extends View {
   }
 
   /**
+   * What an entry takes up: its text, and a mark when the agent has an icon, as `entry` draws it.
+   * @param {import("herdr").AgentInfo} a
+   * @param {Entry | null} entry
+   * @param {boolean} fresh
+   */
+  size(a, entry, fresh) {
+    return { chars: this.text(entry, fresh).length, mark: Boolean(a.program?.icon) };
+  }
+
+  /**
    * What an entry says: its share, "…" while unread, else "n/a".
    * @param {Entry | null} entry
    * @param {boolean} fresh
@@ -139,11 +149,11 @@ export default class ContextMeter extends View {
     const limits = thresholds(props());
     const fresh = Date.now() - this.result.at < STALE_MS;
     const items = agents().map((a) => ({ a, entry: this.result.entries.get(a.address) ?? null }));
-    this.sizeBlock(Math.min(MAX_BLOCK_W, contentWidth(items.map(({ entry }) => this.text(entry, fresh).length), SIZES)));
+    this.sizeBlock(Math.min(MAX_BLOCK_W, contentWidth(items.map((item) => this.size(item.a, item.entry, fresh)), SIZES)));
     const { shown, hidden } = fit(
       items,
       ({ entry }) => (fresh && entry?.state === "ok" ? entry.pct : -1),
-      ({ entry }) => entryWidth(this.text(entry, fresh).length, SIZES),
+      ({ a, entry }) => entryWidth(this.size(a, entry, fresh), SIZES),
       this.width - 2 * PAD + 1,
       { between: GAP, chip: CHIP_W },
     );

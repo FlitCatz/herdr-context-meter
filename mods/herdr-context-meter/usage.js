@@ -240,23 +240,23 @@ export function tooltip(tab, label, entry) {
 }
 
 /**
- * The width of one entry: its mark, its text and its bar, with the gaps between them. The text is
- * a few characters of small type.
- * @param {number} chars the length of the entry's text
+ * The width of one entry: its mark (when the agent has an icon), its text and its bar, with the
+ * gaps between them. The text is a few characters of small type.
+ * @param {{ chars: number, mark: boolean }} entry the length of its text, and whether it has a mark
  * @param {{ mark: number, bar: number, inner: number, char: number }} sizes
  */
-export function entryWidth(chars, sizes) {
-  return sizes.mark + sizes.inner + Math.ceil(chars * sizes.char) + sizes.inner + sizes.bar;
+export function entryWidth(entry, sizes) {
+  return (entry.mark ? sizes.mark + sizes.inner : 0) + Math.ceil(entry.chars * sizes.char) + sizes.inner + sizes.bar;
 }
 
 /**
  * How wide a row of entries is with its padding, so a block can be given exactly that.
- * @param {number[]} chars the length of each entry's text
+ * @param {{ chars: number, mark: boolean }[]} list
  * @param {{ mark: number, bar: number, inner: number, between: number, pad: number, char: number }} sizes
  */
-export function contentWidth(chars, sizes) {
-  const entries = chars.map((n) => entryWidth(n, sizes));
-  return 2 * sizes.pad + entries.reduce((a, b) => a + b, 0) + Math.max(0, chars.length - 1) * sizes.between;
+export function contentWidth(list, sizes) {
+  const entries = list.map((e) => entryWidth(e, sizes));
+  return 2 * sizes.pad + entries.reduce((a, b) => a + b, 0) + Math.max(0, list.length - 1) * sizes.between;
 }
 
 /**

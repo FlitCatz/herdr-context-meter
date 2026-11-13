@@ -181,10 +181,14 @@ test("tooltip: tab, model, counts; n/a says why; no conversation text", () => {
 
 test("contentWidth: the width of a row of entries, so a block can be sized to exactly them", () => {
   const sizes = { mark: 13, bar: 30, inner: 5, between: 10, pad: 12, char: 7 };
-  // One entry with a 3-character text: 13 + 5 + 21 + 5 + 30 = 74, and 12 padding on each side.
-  assert.equal(contentWidth([3], sizes), 98);
+  const entry = (/** @type {number} */ chars, mark = true) => ({ chars, mark });
+  // One entry with a mark and a 3-character text: 13 + 5 + 21 + 5 + 30 = 74, and 12 padding on each side.
+  assert.equal(contentWidth([entry(3)], sizes), 98);
   // Entries are separated by the gap; a longer text is wider.
-  assert.equal(contentWidth([3, 3, 4], sizes), 24 + 74 + 74 + 81 + 20);
+  assert.equal(contentWidth([entry(3), entry(3), entry(4)], sizes), 24 + 74 + 74 + 81 + 20);
   assert.equal(contentWidth([], sizes), 24);
-  assert.equal(entryWidth(3, sizes), 74);
+  assert.equal(entryWidth(entry(3), sizes), 74);
+  // An agent without an icon has no mark and no gap after it: 13 + 5 less.
+  assert.equal(entryWidth(entry(3, false), sizes), 56);
+  assert.equal(contentWidth([entry(3, false)], sizes), 80);
 });
