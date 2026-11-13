@@ -6,7 +6,7 @@ a color, the model and compact token counts (e.g. `opus-4-6 90k/200k`), and the 
 the right. In the Priority (and Pinned) sort, each row shows `[Space Tag][agent icon][agent name]`
 using the same colored badge as the Spaces list (more letters when space initials collide, full
 space name on hover) so the agent's own name stays in the primary slot. In the "Grouped by space"
-sort, rows already omit the space and stay unchanged on the first line. Sub-agent rows stay one
+sort, rows already omit the space and get no tag. Sub-agent rows stay one
 line: a sub-agent with its own pane shows a shorter bar and its share on that line, before a
 compact status (`!` rather than "Needs you"); in a sidebar narrower than 240 px only the bar is
 left, with the share in its tooltip. A sub-agent without a pane has no reading. In the collapsed
@@ -235,6 +235,6 @@ Plain JavaScript with `checkJs`, no build step. `usage.js` (reading and wording 
 is the cloned `agents` view.
 
 ```sh
-npm test            # node --test: matching, usage math on fixtures, tail reader, no-stall, meter row/rail
+npm test            # node --test: matching, usage math on fixtures, tail reader, no-stall, meter row/rail, space tags
 npm run check       # herdr-app check (also writes gpui-kit.d.ts) and tsc
 ```
