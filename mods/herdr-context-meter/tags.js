@@ -26,6 +26,7 @@ export function spaceColor(spaceId, colors, t) {
 }
 
 export const SPACE_TAG_MAX = 3;
+/** Fixed badge column width, sized for SPACE_TAG_MAX letters so every row aligns at one x. */
 export const SPACE_TAG_W = 8 + 8 * SPACE_TAG_MAX;
 
 /**
@@ -44,16 +45,6 @@ export function spaceTagText(name, length) {
   const chars = used.map((seg) => seg[0]);
   chars.push(...used[used.length - 1].slice(1, 1 + length - chars.length));
   return chars.join("").toUpperCase();
-}
-
-/**
- * Fixed pixel width of the space-tag badge column, sized for SPACE_TAG_MAX (3 letters)
- * so every row's icon, name, and second line align at one shared x.
- * @param {string} [_tag]
- * @returns {number}
- */
-export function spaceTagWidth(_tag) {
-  return SPACE_TAG_W;
 }
 
 /**

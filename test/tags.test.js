@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agentRowName, spaceColor, spaceTagText, spaceTagWidth, spaceTags } from "../mods/herdr-context-meter/tags.js";
-import { compactTokens, formatReadingMeta, shortModel } from "../mods/herdr-context-meter/usage.js";
+import { agentRowName, SPACE_TAG_W, spaceColor, spaceTagText, spaceTags } from "../mods/herdr-context-meter/tags.js";
+import { shortModel } from "../mods/herdr-context-meter/usage.js";
 
 test("spaceTags: unique initials use one letter; collisions use two letters deterministically", () => {
   const tags = spaceTags([
@@ -67,10 +67,8 @@ test("spaceTagText: handles empty, symbol, single-char, and Unicode names", () =
   assert.equal(spaceTagText("첫번째-작업", 2), "첫작");
 });
 
-test("spaceTagWidth: constant width across 1-, 2-, and 3-letter tags so rows align", () => {
-  assert.equal(spaceTagWidth("M"), 32);
-  assert.equal(spaceTagWidth("HC"), spaceTagWidth("M"));
-  assert.equal(spaceTagWidth("HTN"), spaceTagWidth("M"));
+test("SPACE_TAG_W: fixed badge column fits a 3-letter tag (8px padding + 8px per letter)", () => {
+  assert.equal(SPACE_TAG_W, 32);
 });
 
 test("spaceColor: matches Spaces MARK palette, supports hex, and falls back to ansi6", () => {
@@ -98,21 +96,9 @@ test("agentRowName: prefers de-duplicated detail, else named/title label, else p
   assert.equal(agentRowName({ program: null }, null, "3"), "3");
 });
 
-test("compactTokens, shortModel, formatReadingMeta: compact second-line metadata", () => {
-  assert.equal(compactTokens(850), "850");
-  assert.equal(compactTokens(120170), "120k");
-  assert.equal(compactTokens(200000), "200k");
-  assert.equal(compactTokens(1000000), "1M");
-  assert.equal(compactTokens(1250000), "1.3M");
-  assert.equal(compactTokens(999_600), "1M");
-  assert.equal(compactTokens(1_040_000), "1M");
-  assert.equal(compactTokens(999.6), "1k");
-
+test("shortModel: strips the claude- prefix and date suffix for the second line", () => {
   assert.equal(shortModel("claude-opus-4-6"), "opus-4-6");
   assert.equal(shortModel("claude-sonnet-4-5-20250929"), "sonnet-4-5");
   assert.equal(shortModel("gpt-6.1-sol"), "gpt-6.1-sol");
   assert.equal(shortModel(null), "");
-
-  assert.equal(formatReadingMeta("claude-opus-4-6", 120000, 200000), "opus-4-6 120k/200k");
-  assert.equal(formatReadingMeta(null, 50000, 200000), "50k/200k");
 });

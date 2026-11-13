@@ -4,7 +4,7 @@ import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, exec, hc, home, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, readTextFile, window, layout } from "herdr";
 import { Meter } from "./meter.js";
-import { agentRowName, spaceColor, spaceTagWidth, spaceTags } from "./tags.js";
+import { agentRowName, SPACE_TAG_W, spaceColor, spaceTags } from "./tags.js";
 
 /** @typedef {import("gpui-kit").Color} Color */
 /** @typedef {import("gpui-kit").Context} Context */
@@ -440,7 +440,7 @@ export default class Agents extends View {
       const showTag = full && Boolean(a.space_name);
       const tag = showTag ? (tags.get(a.space) ?? "?") : "";
       const agentName = agentRowName(a, more, label(a));
-      const nameIndent = (showTag ? spaceTagWidth(tag) + 9 : 0) + (pic ? 25 : 0);
+      const nameIndent = (showTag ? SPACE_TAG_W + 9 : 0) + (pic ? 25 : 0);
       return v_flex()
         .id(`ag-${a.address}`)
         .px(8)
@@ -466,7 +466,7 @@ export default class Agents extends View {
                 h_flex()
                   .id(`ag-tag-${a.address}`)
                   .h(18)
-                  .w(spaceTagWidth(tag))
+                  .w(SPACE_TAG_W)
                   .flex_none()
                   .rounded(5)
                   .bg(spaceColor(a.space, spaceColors, t))
