@@ -5,8 +5,8 @@ line under each agent row showing how full its context window is: a short bar, t
 and a color. Sub-agent rows stay one line: a sub-agent with its own pane shows a shorter bar and
 its share on that line, before a compact status (`!` rather than "Needs you"); in a sidebar
 narrower than 240 px only the bar is left, with the share in its tooltip. A sub-agent without a
-pane has no reading. In the collapsed narrow sidebar rail, each agent row shows a thin 2 px bar underneath its index and status. The bottom status bar (`workspace-status`)
-is left unchanged.
+pane has no reading. In the collapsed narrow sidebar rail, each agent row shows a thin 2 px bar
+under its index and status. The bottom status bar (`workspace-status`) is left unchanged.
 
 ```
 Needs you 1
@@ -193,7 +193,7 @@ The behavior hunks:
    goes before the status, and the status is compact when `compact || Boolean(kept)`. `render()`
    reads `sidebarPx` from the sidebar's `size.px` in `layout()` and passes it to each `subRow`.
 5. **`row(a, i, subs)` — collapsed branch:** wraps the index + status `h_flex()` in a `v_flex()`
-   (`h(30)`, `gap(3)`) with `.child(this.meter.railBar(t, a))` underneath.
+   (`h(30)`, `justify_center()`, `gap(3)`) with `.child(this.meter.railBar(t, a))` underneath.
 6. **`row(a, i, subs)` — expanded branch:** wraps the row `h_flex()` in a `v_flex()` (`py(5)`,
    `gap(3)`) with `.child(this.meter.rowLine(t, a, Boolean(pic)))` underneath.
 7. **`render()` — `ag-sort` button:** `openOverlay({ mod: "herdr-context-meter", ... })` instead of
