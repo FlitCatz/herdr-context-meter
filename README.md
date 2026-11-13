@@ -35,7 +35,7 @@ Working 2
 |---|---|---|---|
 | Claude Code | `input + cache creation + cache read` tokens of the latest response (output not counted) | per-model table, below | Claude Code's status line (`used_percentage` is computed the same way) |
 | Codex | `last_token_usage.total_tokens` of the latest `token_count`, with Codex's 12,000-token baseline taken off both the usage and the window | `model_context_window` from the same record | Codex's `Context N% left` |
-| Antigravity CLI (`agy`) | `input_tokens + cache_read_tokens` of the latest `PLANNER_RESPONSE` in `transcript.jsonl` | 1,048,576 for Gemini 4 models, `claudeWindow` for Claude models, `windows` prop override | `agy` status line (`Ctx: N%`) |
+| Antigravity CLI (`agy`) | `input_tokens + cache_read_tokens` of the latest `PLANNER_RESPONSE` in `transcript.jsonl` | 1,048,576 for Gemini 4 models (other ids: 1,048,576, marked "window assumed"), `claudeWindow` for Claude models, `windows` prop override | `agy` status line (`Ctx: N%`) |
 | anything else (pi, ...) | not read | | shown as `n/a`, hover says why |
 
 An agent whose number cannot be read **always shows `n/a`** with the reason on hover; a stale or
@@ -121,8 +121,8 @@ Limits, all of which show `n/a` rather than a guess:
   file").
 - A new session that has not recorded a response yet.
 
-Both Claude's session file and Codex's open rollout are implementation details of those tools,
-not documented interfaces; if one changes, the entry reads `n/a` until the mod is updated.
+Claude's session file, Codex's open rollout and `agy`'s `transcript.jsonl` are implementation
+details of those tools, not documented interfaces; if one changes, the entry reads `n/a` until the mod is updated.
 
 The numbers are as of the last completed response: during a long tool run the entry shows the
 context of the response before it. After `/compact` it updates with the next response; after
@@ -132,7 +132,8 @@ context of the response before it. After `/compact` it updates with the next res
 
 Only the last part of each file is read, with `tail -c` (256 KiB, growing to 2 MiB only when no
 usage record is in it), never a whole transcript. From each line only token counts, the model
-id and the record's timestamp are taken. Of a Codex rollout, the first 4 KiB are also read, with
+id and the record's timestamp are taken (an `agy` model comes from its `--model` argument, or else
+the `model` field of `~/.gemini/antigravity-cli/settings.json`). Of a Codex rollout, the first 4 KiB are also read, with
 `head -c` (again each round only until its first line can be read), only to see whether its
 `session_meta` names a sub-agent; the text from `base_instructions` on is not looked at.
 Conversation text is not looked at, kept, logged or shown, and no reading is stored.
