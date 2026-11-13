@@ -10,13 +10,14 @@ export const DEFAULT_CRITICAL = 50;
 
 export const STANDARD_WINDOW = 200000;
 export const MILLION_WINDOW = 1000000;
+export const AGY_GEMINI_WINDOW = 1024 * 1024;
 
 // Codex's own "Context N% left" leaves this many tokens out of both the window and the
 // usage (codex-rs/tui token_usage.rs: BASELINE_TOKENS), so its percentage is not total/window.
 export const CODEX_BASELINE_TOKENS = 12000;
 
 /**
- * @typedef {{ state: "ok", kind: "claude" | "codex", pct: number, used: number, window: number,
+ * @typedef {{ state: "ok", kind: "claude" | "codex" | "agy", pct: number, used: number, window: number,
  *   model: string | null, assumed: boolean, parts: [string, number][] }} Reading
  * @typedef {{ state: "na", reason: string, kind?: string }} Missing
  * @typedef {Reading | Missing} Entry
@@ -31,12 +32,27 @@ const finite = (/** @type {unknown} */ n) => typeof n === "number" && Number.isF
 /**
  * Which tool an agent is, from what it reported (`agents()[i].app`).
  * @param {string | null | undefined} app
- * @returns {"claude" | "codex" | null}
+ * @returns {"claude" | "codex" | "agy" | null}
  */
 export function kindOf(app) {
   if (app === "claude-code") return "claude";
   if (app === "codex") return "codex";
+  if (app === "antigravity") return "agy";
   return null;
+}
+
+/**
+ * Longest matching prefix in `overrides`, or null when none applies.
+ * @param {string} id
+ * @param {Record<string, unknown>} [overrides]
+ * @returns {number | null}
+ */
+function windowOverride(id, overrides = {}) {
+  let best = "";
+  for (const key of Object.keys(overrides)) {
+    if (id.startsWith(key) && key.length > best.length && finite(overrides[key]) && /** @type {number} */ (overrides[key]) > 0) best = key;
+  }
+  return best ? /** @type {number} */ (overrides[best]) : null;
 }
 
 // ---- Claude ---------------------------------------------------------------------------
@@ -67,11 +83,8 @@ function nativeMillion(model) {
  */
 export function claudeWindow(model, overrides = {}) {
   const id = model ?? "";
-  let best = "";
-  for (const key of Object.keys(overrides)) {
-    if (id.startsWith(key) && key.length > best.length && finite(overrides[key]) && /** @type {number} */ (overrides[key]) > 0) best = key;
-  }
-  if (best) return { tokens: /** @type {number} */ (overrides[best]), assumed: false };
+  const hit = windowOverride(id, overrides);
+  if (hit !== null) return { tokens: hit, assumed: false };
   if (nativeMillion(id)) return { tokens: MILLION_WINDOW, assumed: false };
   const known = CLAUDE_MODEL.test(id) || id.startsWith("claude-3");
   return { tokens: STANDARD_WINDOW, assumed: !known };
@@ -179,6 +192,75 @@ export function codexReading(rec) {
   };
 }
 
+// ---- Antigravity CLI (agy) ------------------------------------------------------------
+
+/**
+ * The last PLANNER_RESPONSE usage in the tail of an agy `transcript.jsonl`.
+ * Context in use is `input_tokens + cache_read_tokens`.
+ * @param {string} text the tail of the file; its first line may be cut
+ * @returns {{ input: number, cacheRead: number, output: number, at: number } | null}
+ */
+export function parseAgyTail(text) {
+  const lines = text.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (!line.includes('"PLANNER_RESPONSE"')) continue;
+    let o;
+    try { o = JSON.parse(line); } catch { continue; }
+    if (o?.type !== "PLANNER_RESPONSE") continue;
+    const input = o.input_tokens ?? 0;
+    const cacheRead = o.cache_read_tokens ?? 0;
+    if (!finite(input) || !finite(cacheRead) || input + cacheRead <= 0) continue;
+    const output = finite(o.output_tokens) ? o.output_tokens : 0;
+    return { input, cacheRead, output, at: Date.parse(o.created_at) || 0 };
+  }
+  return null;
+}
+
+/**
+ * Normalizes an agy Claude display name (e.g. "Claude Opus 5.5 (High)") to a model id prefix
+ * for `claudeWindow`.
+ * @param {string} id
+ */
+function normalizeAgyClaudeId(id) {
+  return id
+    .toLowerCase()
+    .replace(/\s+\((?:low|medium|high|xhigh|max)\)$/, "")
+    .replace(/[.\s]+/g, "-");
+}
+
+/**
+ * The context window of an agy model. `overrides` beats the built-in table; Gemini models
+ * default to 1,048,576 tokens and Claude models reuse `claudeWindow`.
+ * @param {string | null | undefined} model
+ * @param {Record<string, unknown>} [overrides]
+ * @returns {{ tokens: number, assumed: boolean }}
+ */
+export function agyWindow(model, overrides = {}) {
+  const id = model ?? "";
+  const hit = windowOverride(id, overrides);
+  if (hit !== null) return { tokens: hit, assumed: false };
+  if (/^claude[-\s]/i.test(id)) return claudeWindow(normalizeAgyClaudeId(id), overrides);
+  const known = /^gemini[-\s]|^orchestrator\b/i.test(id);
+  return { tokens: AGY_GEMINI_WINDOW, assumed: !known };
+}
+
+/**
+ * @param {{ input: number, cacheRead: number, output: number }} rec
+ * @param {string | null | undefined} model
+ * @param {Record<string, unknown>} [overrides]
+ * @returns {Reading}
+ */
+export function agyReading(rec, model, overrides) {
+  const used = rec.input + rec.cacheRead;
+  const { tokens: window, assumed } = agyWindow(model, overrides);
+  return {
+    state: "ok", kind: "agy", used, window, model: model ?? null, assumed,
+    pct: clampPct((used / window) * 100),
+    parts: [["input", rec.input], ["cache read", rec.cacheRead]],
+  };
+}
+
 // ---- Thresholds and wording -------------------------------------------------------------
 
 /** @param {number} n */
@@ -221,7 +303,16 @@ export const grouped = (n) => Math.round(n).toLocaleString("en-US");
 /** @param {string | null | undefined} model */
 export function shortModel(model) {
   if (!model) return "";
-  return model.replace(/^claude-/, "").replace(/-\d{8}$/, "");
+  const trimmed = model
+    .replace(/\s+\((?:Low|Medium|High|XHigh|Max)\)$/i, "")
+    .replace(/-(?:low|medium|high|xhigh|max)$/i, "");
+  if (/^gemini-/i.test(trimmed)) {
+    return trimmed
+      .split("-")
+      .map((part) => (/^\d/.test(part) ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+      .join(" ");
+  }
+  return trimmed.replace(/^claude-/, "").replace(/-\d{8}$/, "");
 }
 
 /**
@@ -236,7 +327,7 @@ export function tooltip(tab, label, entry) {
   const lines = [head];
   if (entry.model) lines.push(entry.model);
   lines.push(`${grouped(entry.used)} of ${grouped(entry.window)} tokens (${percentText(entry.pct)})`);
-  if (entry.kind === "claude") {
+  if (entry.kind === "claude" || entry.kind === "agy") {
     lines.push(entry.parts.map(([name, n]) => `${name} ${grouped(n)}`).join(" · "));
     if (entry.assumed) lines.push("Window assumed; set it with the windows prop.");
   } else {

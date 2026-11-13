@@ -4,7 +4,8 @@ import { mkdtempSync, openSync, readSync, closeSync, statSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  EXEC_TIMEOUT_MS, HEAD_BYTES, PROGRAMS, TAIL_SIZES, parseLsof, readAll, tailParse, withDescendants,
+  EXEC_TIMEOUT_MS, HEAD_BYTES, PROGRAMS, TAIL_SIZES, agyUuidsFromFiles, modelFromArgv, parseLsof, readAll, tailParse,
+  withDescendants,
 } from "../mods/herdr-context-meter/sources.js";
 import { parseCodexTail } from "../mods/herdr-context-meter/usage.js";
 
@@ -12,6 +13,7 @@ const fixturePath = (/** @type {string} */ name) => new URL(`./fixtures/${name}`
 const CLAUDE = fixturePath("claude-transcript.jsonl");
 const CODEX = fixturePath("codex-rollout.jsonl");
 const CODEX_SUBAGENT = fixturePath("codex-subagent-rollout.jsonl");
+const AGY = fixturePath("agy-transcript.jsonl");
 const SESSION = "11111111-2222-4333-8444-555555555555";
 const HOME = "/home/fake";
 
@@ -38,8 +40,9 @@ function head(/** @type {string} */ path, /** @type {number} */ bytes) {
 /**
  * A host with fake programs. `files` maps the path a program is asked for to a real file;
  * `calls` records every program run, so tests can check what was (not) asked.
- * @param {{ hc?: Record<string, unknown>, sessions?: Record<string, unknown>, files?: Record<string, string>,
- *   ps?: string, lsof?: string, find?: string, execFails?: (command: string, args: string[]) => Error | null }} [spec]
+ * @param {{ hc?: Record<string, unknown>, sessions?: Record<string, unknown>, textFiles?: Record<string, string>,
+ *   files?: Record<string, string>, ps?: string, lsof?: string, find?: string,
+ *   execFails?: (command: string, args: string[]) => Error | null }} [spec]
  */
 function fakeHost(spec = {}) {
   /** @type {{ command: string, args: string[], timeout?: number }[]} */
@@ -69,6 +72,7 @@ function fakeHost(spec = {}) {
       return info ? { code: 0, stdout: JSON.stringify(info), stderr: "" } : { code: 1, stdout: "", stderr: "unknown terminal" };
     },
     async readTextFile(/** @type {string} */ path) {
+      if (spec.textFiles && path in spec.textFiles) return spec.textFiles[path];
       const pid = /sessions\/(\d+)\.json$/.exec(path)?.[1];
       const session = pid ? spec.sessions?.[pid] : undefined;
       return session ? JSON.stringify(session) : null;
@@ -77,10 +81,13 @@ function fakeHost(spec = {}) {
   return host;
 }
 
-const terminal = (/** @type {number} */ pid) => ({ foreground: { pid } });
+const terminal = (/** @type {number} */ pid, /** @type {string[]} */ argv) => ({
+  foreground: argv ? { pid, argv } : { pid },
+});
 const ctx = () => ({ paths: new Map(), subagents: new Map(), windows: {} });
 const claudeAgent = (/** @type {string} */ address) => ({ address, app: "claude-code", program: { name: "Claude Code" } });
 const codexAgent = (/** @type {string} */ address) => ({ address, app: "codex", program: { name: "Codex" } });
+const agyAgent = (/** @type {string} */ address) => ({ address, app: "antigravity", program: { name: "Antigravity" } });
 const transcriptPath = `${HOME}/.claude/projects/-work-example-project/${SESSION}.jsonl`;
 
 test("tail reader: only a bounded slice from the end, growing until a record is found", async () => {
@@ -387,4 +394,55 @@ test("every program is run by absolute path with a time limit", async () => {
     assert.ok(call.command.startsWith("/"), call.command);
     assert.equal(call.timeout, EXEC_TIMEOUT_MS, call.command);
   }
+});
+
+test("Agy: extracts uuid from conversations/<uuid>.db-shm and brain/<uuid> lsof paths", () => {
+  const id1 = "2e8230b5-4816-4ef8-9fee-5b61efd5e974";
+  const id2 = "c4e79c68-1f64-4464-80bf-592d8f51aa9f";
+  assert.deepEqual(agyUuidsFromFiles([
+    `${HOME}/.gemini/antigravity-cli/conversations/${id1}.db-shm`,
+    `${HOME}/.gemini/antigravity-cli/conversations/${id1}.db-wal`,
+    `${HOME}/.gemini/antigravity-cli/brain/${id2}/scratch/tmp.txt`,
+    `${HOME}/.gemini/antigravity-cli/cli.log`,
+  ]), [id1, id2]);
+  assert.equal(modelFromArgv(["/opt/homebrew/bin/agy", "--model", "gemini-4-hydrogen-medium"]), "gemini-4-hydrogen-medium");
+  assert.equal(modelFromArgv(["agy", "--model=gemini-4-argon-high"]), "gemini-4-argon-high");
+  assert.equal(modelFromArgv(["agy"]), null);
+});
+
+test("Agy: reads transcript.jsonl via shared ps+lsof with Codex and resolves model from argv or settings", async () => {
+  const agyId1 = "2e8230b5-4816-4ef8-9fee-5b61efd5e974";
+  const agyId2 = "c4e79c68-1f64-4464-80bf-592d8f51aa9f";
+  const transcript1 = `${HOME}/.gemini/antigravity-cli/brain/${agyId1}/.system_generated/logs/transcript.jsonl`;
+  const transcript2 = `${HOME}/.gemini/antigravity-cli/brain/${agyId2}/.system_generated/logs/transcript.jsonl`;
+  const rollout = "/home/fake/.codex/sessions/2026/11/12/rollout-a.jsonl";
+  const host = fakeHost({
+    hc: {
+      t1: terminal(101, ["/opt/homebrew/bin/agy", "--model", "gemini-4-hydrogen-medium"]),
+      t2: terminal(102, ["/opt/homebrew/bin/agy"]),
+      t3: terminal(103, ["/opt/homebrew/bin/agy"]),
+      t4: terminal(104),
+    },
+    ps: "101 1\n102 1\n103 1\n104 1\n",
+    lsof: [
+      `p101\nn${HOME}/.gemini/antigravity-cli/conversations/${agyId1}.db-shm`,
+      `p102\nn${HOME}/.gemini/antigravity-cli/brain/${agyId2}`,
+      `p103\nn${HOME}/.gemini/antigravity-cli/cli.log`,
+      `p104\nn${rollout}`,
+    ].join("\n"),
+    files: { [transcript1]: AGY, [transcript2]: AGY, [rollout]: CODEX },
+    textFiles: { [`${HOME}/.gemini/antigravity-cli/settings.json`]: JSON.stringify({ model: "Gemini 4 Argon (High)" }) },
+  });
+  const entries = await readAll(host, [agyAgent("t1"), agyAgent("t2"), agyAgent("t3"), codexAgent("t4")], ctx());
+  assert.equal(host.calls.filter((c) => c.command === PROGRAMS.ps).length, 1);
+  assert.equal(host.calls.filter((c) => c.command === PROGRAMS.lsof).length, 1);
+  const e1 = entries.get("t1");
+  assert.equal(e1?.state, "ok");
+  assert.equal(e1?.state === "ok" && e1.used, 121755);
+  assert.equal(e1?.state === "ok" && e1.model, "gemini-4-hydrogen-medium");
+  const e2 = entries.get("t2");
+  assert.equal(e2?.state, "ok");
+  assert.equal(e2?.state === "ok" && e2.model, "Gemini 4 Argon (High)");
+  assert.deepEqual(entries.get("t3"), { state: "na", reason: "session file not found", kind: "agy" });
+  assert.equal(entries.get("t4")?.state, "ok");
 });

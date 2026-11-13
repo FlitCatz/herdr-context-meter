@@ -100,5 +100,10 @@ test("shortModel: strips the claude- prefix and date suffix for the second line"
   assert.equal(shortModel("claude-opus-4-6"), "opus-4-6");
   assert.equal(shortModel("claude-sonnet-4-5-20250929"), "sonnet-4-5");
   assert.equal(shortModel("gpt-6.1-sol"), "gpt-6.1-sol");
+  assert.equal(shortModel("gemini-4-hydrogen-medium"), "Gemini 4 Hydrogen");
+  assert.equal(shortModel("Gemini 4 Hydrogen (Medium)"), "Gemini 4 Hydrogen");
+  assert.equal(shortModel("gemini-4-argon-high"), "Gemini 4 Argon");
+  assert.equal(shortModel("gemini-3.8-flash-low"), "Gemini 3.8 Flash");
+  assert.equal(shortModel("claude-opus-5-5-high"), "opus-5-5");
   assert.equal(shortModel(null), "");
 });

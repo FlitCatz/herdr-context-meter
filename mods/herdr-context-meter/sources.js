@@ -6,7 +6,7 @@
 // A Codex rollout's first line is also read, with `head -c`, only to tell a sub-agent's apart.
 
 import {
-  claudeReading, codexReading, kindOf, missing, parseClaudeTail, parseCodexTail,
+  agyReading, claudeReading, codexReading, kindOf, missing, parseAgyTail, parseClaudeTail, parseCodexTail,
 } from "./usage.js";
 
 /**
@@ -20,7 +20,7 @@ import {
  * }} Host
  * @typedef {{ address: string, app: string | null, program?: { name?: string } }} AgentRef
  * @typedef {{ paths: Map<string, string>, subagents: Map<string, boolean>, windows: Record<string, unknown> }} Context
- * @typedef {{ pid: number }} Foreground
+ * @typedef {{ pid: number, argv?: string[] }} Foreground
  */
 
 export const PROGRAMS = {
@@ -43,6 +43,7 @@ export const HEAD_BYTES = 4096;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ROLLOUT = /\/rollout-[^/]+\.jsonl$/;
+const AGY_CONV = /\/\.gemini\/antigravity-cli\/(?:conversations\/([0-9a-f-]{36})\.db(?:-shm|-wal)?|brain\/([0-9a-f-]{36})(?:\/|$))/i;
 
 /** For `.catch`: a failed optional read is just absent. @returns {null} */
 const none = () => null;
@@ -81,7 +82,8 @@ export async function foregroundOf(host, address) {
   const ran = await host.hc(["get", address, "--json"]);
   if (ran.code !== 0) return null;
   const fg = JSON.parse(ran.stdout)?.foreground;
-  return Number.isInteger(fg?.pid) ? { pid: fg.pid } : null;
+  if (!Number.isInteger(fg?.pid)) return null;
+  return Array.isArray(fg.argv) ? { pid: fg.pid, argv: fg.argv } : { pid: fg.pid };
 }
 
 // ---- Claude ---------------------------------------------------------------------------
@@ -177,6 +179,30 @@ export function parseLsof(text) {
 }
 
 /**
+ * Open files per terminal address, found with one `ps` and one `lsof` across all targets.
+ * @param {Host} host
+ * @param {Map<string, Foreground>} targets by terminal address
+ * @returns {Promise<Map<string, string[]>>}
+ */
+export async function openFiles(host, targets) {
+  const ps = await host.exec(PROGRAMS.ps, ["-A", "-o", "pid=,ppid="], { timeout: EXEC_TIMEOUT_MS });
+  if (ps.code !== 0) throw new Error("ps failed");
+  /** @type {Map<string, number[]>} */
+  const pids = new Map();
+  for (const [address, fg] of targets) pids.set(address, withDescendants(ps.stdout, fg.pid));
+  const every = [...new Set([...pids.values()].flat())];
+  // lsof exits 1 when one of the pids ended meanwhile, still printing the others.
+  const lsof = await host.exec(PROGRAMS.lsof, ["-n", "-P", "-p", every.join(","), "-Fpn"], { timeout: EXEC_TIMEOUT_MS });
+  const files = parseLsof(lsof.stdout);
+  /** @type {Map<string, string[]>} */
+  const byAddress = new Map();
+  for (const [address, list] of pids) {
+    byAddress.set(address, [...new Set(list.flatMap((pid) => files.get(pid) ?? []))]);
+  }
+  return byAddress;
+}
+
+/**
  * Codex keeps its rollout file open, so the file a terminal's Codex has open is its session:
  * exact, where a folder match is not (two Codex terminals can share a folder, and a session in
  * a worktree has another cwd than the terminal). The files of every Codex terminal are found
@@ -186,20 +212,8 @@ export function parseLsof(text) {
  * @returns {Promise<Map<string, string[]>>}
  */
 export async function openRollouts(host, codex) {
-  const ps = await host.exec(PROGRAMS.ps, ["-A", "-o", "pid=,ppid="], { timeout: EXEC_TIMEOUT_MS });
-  if (ps.code !== 0) throw new Error("ps failed");
-  /** @type {Map<string, number[]>} */
-  const pids = new Map();
-  for (const [address, fg] of codex) pids.set(address, withDescendants(ps.stdout, fg.pid));
-  const every = [...new Set([...pids.values()].flat())];
-  // lsof exits 1 when one of the pids ended meanwhile, still printing the others.
-  const lsof = await host.exec(PROGRAMS.lsof, ["-n", "-P", "-p", every.join(","), "-Fpn"], { timeout: EXEC_TIMEOUT_MS });
-  const files = parseLsof(lsof.stdout);
-  /** @type {Map<string, string[]>} */
-  const byAddress = new Map();
-  for (const [address, list] of pids) {
-    byAddress.set(address, [...new Set(list.flatMap((pid) => files.get(pid) ?? []).filter((f) => ROLLOUT.test(f)))]);
-  }
+  const byAddress = await openFiles(host, codex);
+  for (const [address, files] of byAddress) byAddress.set(address, files.filter((f) => ROLLOUT.test(f)));
   return byAddress;
 }
 
@@ -248,6 +262,71 @@ async function readCodex(host, open, ctx) {
   return latest ? codexReading(latest) : missing("no usage recorded yet", "codex");
 }
 
+// ---- Antigravity CLI (agy) ------------------------------------------------------------
+
+/**
+ * Extracts unique agy conversation UUIDs from open file paths (`conversations/<uuid>.db*`
+ * or `brain/<uuid>`).
+ * @param {string[]} files
+ * @returns {string[]}
+ */
+export function agyUuidsFromFiles(files) {
+  /** @type {Set<string>} */
+  const uuids = new Set();
+  for (const f of files) {
+    const m = AGY_CONV.exec(f);
+    if (m) uuids.add((m[1] ?? m[2]).toLowerCase());
+  }
+  return [...uuids];
+}
+
+/**
+ * Extracts `--model <id>` or `--model=<id>` from process argv.
+ * @param {string[] | undefined} argv
+ * @returns {string | null}
+ */
+export function modelFromArgv(argv) {
+  if (!Array.isArray(argv)) return null;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--model" && typeof argv[i + 1] === "string" && argv[i + 1]) return argv[i + 1];
+    if (arg.startsWith("--model=") && arg.length > 8) return arg.slice(8);
+  }
+  return null;
+}
+
+/**
+ * Reads the configured default model from `~/.gemini/antigravity-cli/settings.json`.
+ * @param {Host} host
+ * @returns {Promise<string | null>}
+ */
+async function agySettingsModel(host) {
+  const text = await host.readTextFile(`${host.home}/.gemini/antigravity-cli/settings.json`).catch(none);
+  if (!text) return null;
+  try {
+    const o = JSON.parse(text);
+    return typeof o?.model === "string" && o.model ? o.model : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param {Host} host
+ * @param {string[]} open
+ * @param {string | null} model
+ * @param {Context} ctx
+ * @returns {Promise<Entry>}
+ */
+async function readAgy(host, open, model, ctx) {
+  const uuids = agyUuidsFromFiles(open);
+  if (uuids.length === 0) return missing("session file not found", "agy");
+  const paths = uuids.map((id) => `${host.home}/.gemini/antigravity-cli/brain/${id}/.system_generated/logs/transcript.jsonl`);
+  const recs = await Promise.all(paths.map((path) => tailParse(host, path, parseAgyTail)));
+  const latest = recs.filter((r) => r !== null).sort((a, b) => b.at - a.at)[0];
+  return latest ? agyReading(latest, model, ctx.windows) : missing("no usage recorded yet", "agy");
+}
+
 // ---- All agents ---------------------------------------------------------------------------
 
 /**
@@ -261,7 +340,7 @@ async function readCodex(host, open, ctx) {
 export async function readAll(host, agents, ctx) {
   /** @type {Map<string, Entry>} */
   const entries = new Map();
-  /** @type {{ agent: AgentRef, kind: "claude" | "codex" }[]} */
+  /** @type {{ agent: AgentRef, kind: "claude" | "codex" | "agy" }[]} */
   const supported = [];
   for (const agent of agents) {
     const kind = kindOf(agent.app);
@@ -279,26 +358,36 @@ export async function readAll(host, agents, ctx) {
   }));
 
   /** @type {Map<string, Foreground>} */
-  const codex = new Map();
+  const lsofTargets = new Map();
+  let needsAgySettings = false;
   for (const { agent, kind } of supported) {
     const fg = foreground.get(agent.address);
-    if (fg && kind === "codex") codex.set(agent.address, fg);
+    if (!fg) continue;
+    if (kind === "codex" || kind === "agy") lsofTargets.set(agent.address, fg);
+    if (kind === "agy" && !modelFromArgv(fg.argv)) needsAgySettings = true;
   }
   /** @type {Map<string, string[]> | null} */
-  let rollouts = null;
+  let openByAddress = null;
   /** @type {string} */
-  let rolloutsFailure = "read failed";
-  if (codex.size > 0) {
-    try { rollouts = await openRollouts(host, codex); } catch (err) { rolloutsFailure = reasonOf(err); }
+  let openFailure = "read failed";
+  if (lsofTargets.size > 0) {
+    try { openByAddress = await openFiles(host, lsofTargets); } catch (err) { openFailure = reasonOf(err); }
   }
+  const fallbackAgyModel = needsAgySettings ? await agySettingsModel(host) : null;
 
   await Promise.all(supported.map(async ({ agent, kind }) => {
     const fg = foreground.get(agent.address);
     try {
       if (!fg) entries.set(agent.address, missing("no agent process found", kind));
       else if (kind === "claude") entries.set(agent.address, await readClaude(host, fg, ctx));
-      else if (!rollouts) entries.set(agent.address, missing(rolloutsFailure, kind));
-      else entries.set(agent.address, await readCodex(host, rollouts.get(agent.address) ?? [], ctx));
+      else if (!openByAddress) entries.set(agent.address, missing(openFailure, kind));
+      else if (kind === "codex") {
+        const rollouts = (openByAddress.get(agent.address) ?? []).filter((f) => ROLLOUT.test(f));
+        entries.set(agent.address, await readCodex(host, rollouts, ctx));
+      } else {
+        const model = modelFromArgv(fg.argv) ?? fallbackAgyModel;
+        entries.set(agent.address, await readAgy(host, openByAddress.get(agent.address) ?? [], model, ctx));
+      }
     } catch (err) {
       entries.set(agent.address, missing(reasonOf(err), kind));
     }
