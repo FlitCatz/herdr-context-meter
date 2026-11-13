@@ -3,8 +3,9 @@
 A [Herdr](https://herdr.dev) mod that clones the shipped `agents` sidebar list and adds a second
 line under each agent row showing how full its context window is: a short bar, the share in use,
 and a color. Sub-agent rows stay one line: a sub-agent with its own pane shows a shorter bar and
-its share on that line, before its status; one without a pane has no reading. In the collapsed narrow sidebar rail, each agent row
-shows a thin 2 px bar underneath its index and status. The bottom status bar (`workspace-status`)
+its share on that line, before a compact status (`!` rather than "Needs you"); in a sidebar
+narrower than 240 px only the bar is left, with the share in its tooltip. A sub-agent without a
+pane has no reading. In the collapsed narrow sidebar rail, each agent row shows a thin 2 px bar underneath its index and status. The bottom status bar (`workspace-status`)
 is left unchanged.
 
 ```
@@ -187,8 +188,10 @@ The behavior hunks:
 2. **`init(_props, cx)`:** instantiates `this.meter = new Meter(cx, { ui: { div, h_flex }, host: { exec, hc, readTextFile, home: home() }, agents, props })`.
 3. **`render()` — `this.listed`:** maps each address to its `AgentInfo` instead of its status, and
    `kidStatus` reads `listed.get(k.address)?.status`.
-4. **`subRow`:** `const kept = this.listed.get(k.address)`; the click tests `kept`, and
-   `.when(Boolean(kept), (el) => el.child(this.meter.subReading(t, kept)))` goes before the status.
+4. **`subRow(t, s, shown, compact, sidebarPx)`:** `const kept = this.listed.get(k.address)`; the
+   click tests `kept`, `.when(Boolean(kept), (el) => el.child(this.meter.subReading(t, kept, sidebarPx)))`
+   goes before the status, and the status is compact when `compact || Boolean(kept)`. `render()`
+   reads `sidebarPx` from the sidebar's `size.px` in `layout()` and passes it to each `subRow`.
 5. **`row(a, i, subs)` — collapsed branch:** wraps the index + status `h_flex()` in a `v_flex()`
    (`h(30)`, `gap(3)`) with `.child(this.meter.railBar(t, a))` underneath.
 6. **`row(a, i, subs)` — expanded branch:** wraps the row `h_flex()` in a `v_flex()` (`py(5)`,

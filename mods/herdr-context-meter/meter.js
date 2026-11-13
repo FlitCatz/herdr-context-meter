@@ -23,6 +23,7 @@ export const STALE_MS = 3 * REFRESH_MS + ROUND_LIMIT_MS;
 export const BAR_W = 56;
 export const BAR_H = 4;
 export const SUB_BAR_W = 24;
+export const SUB_TEXT_MIN_PX = 240;
 
 export class Meter {
   /**
@@ -113,8 +114,9 @@ export class Meter {
    * @param {import("herdr").AgentInfo} a
    * @param {string} id
    * @param {number} barW
+   * @param {boolean} [withText]
    */
-  reading(t, a, id, barW) {
+  reading(t, a, id, barW, withText = true) {
     const { div, h_flex } = this.deps.ui;
     const { ok, level, text, hint } = this.inspect(a);
     return h_flex()
@@ -139,12 +141,14 @@ export class Meter {
             ),
           ),
       )
-      .child(
-        div()
-          .text_size(11)
-          .font_medium()
-          .text_color(ok ? this.color(t, level) : t.dim)
-          .child(text),
+      .when(withText, (el) =>
+        el.child(
+          div()
+            .text_size(11)
+            .font_medium()
+            .text_color(ok ? this.color(t, level) : t.dim)
+            .child(text),
+        ),
       );
   }
 
@@ -159,12 +163,14 @@ export class Meter {
   }
 
   /**
-   * On the same line as a kept sub-agent's row, so sub-agent rows stay one line.
+   * On the same line as a kept sub-agent's row, so sub-agent rows stay one line. In a
+   * sidebar narrower than SUB_TEXT_MIN_PX only the bar is left, so the name keeps room.
    * @param {Record<string, Color>} t
    * @param {import("herdr").AgentInfo} a
+   * @param {number} sidebarPx
    */
-  subReading(t, a) {
-    return this.reading(t, a, `ctx-sub-${a.address}`, SUB_BAR_W).flex_none().mx(6);
+  subReading(t, a, sidebarPx) {
+    return this.reading(t, a, `ctx-sub-${a.address}`, SUB_BAR_W, sidebarPx >= SUB_TEXT_MIN_PX).flex_none().mx(6);
   }
 
   /**

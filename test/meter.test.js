@@ -188,7 +188,7 @@ test("subReading: a kept sub-agent's reading stays on one line, shorter than the
     ]),
   };
 
-  const crit = meter.subReading(THEME, makeAgent("k1"));
+  const crit = meter.subReading(THEME, makeAgent("k1"), 268);
   assert.equal(crit.kind, "h_flex");
   assert.notEqual(crit.props.id, meter.rowLine(THEME, makeAgent("k1"), true).props.id);
   assert.ok("flex_none" in crit.props);
@@ -201,13 +201,33 @@ test("subReading: a kept sub-agent's reading stays on one line, shorter than the
   assert.equal(crit.children[1].children[0], "52%");
   assert.equal(crit.children[1].props.text_color, THEME.blocked);
 
-  const na = meter.subReading(THEME, makeAgent("k2"));
+  const na = meter.subReading(THEME, makeAgent("k2"), 268);
   assert.equal(na.children[0].children.length, 0);
   assert.equal(na.children[1].children[0], "n/a");
   assert.equal(na.children[1].props.text_color, THEME.dim);
   assert.match(String(na.props.tooltip), /no main session file/);
 
   now += STALE_MS;
-  const stale = meter.subReading(THEME, makeAgent("k1"));
+  const stale = meter.subReading(THEME, makeAgent("k1"), 268);
   assert.equal(stale.children[1].children[0], "n/a");
+});
+
+test("subReading: at the default 268 px sidebar the share shows; below 240 px only the bar is left, the share stays in the tooltip", () => {
+  const now = 3000;
+  const meter = makeMeter(() => now);
+  meter.result = { at: now, entries: new Map([["k1", okEntry(45)]]) };
+
+  const wide = meter.subReading(THEME, makeAgent("k1"), 268);
+  assert.equal(wide.children.length, 2);
+  assert.equal(wide.children[1].children[0], "45%");
+
+  const atEdge = meter.subReading(THEME, makeAgent("k1"), 240);
+  assert.equal(atEdge.children.length, 2);
+
+  const tight = meter.subReading(THEME, makeAgent("k1"), 200);
+  assert.equal(tight.children.length, 1);
+  assert.equal(tight.children[0].props.w, SUB_BAR_W);
+  assert.equal(tight.children[0].children[0].props.w, "45%");
+  assert.equal(tight.children[0].children[0].props.bg, THEME.working);
+  assert.match(String(tight.props.tooltip), /45%/);
 });

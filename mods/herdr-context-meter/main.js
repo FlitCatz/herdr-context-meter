@@ -244,8 +244,9 @@ export default class Agents extends View {
    * @param {{ t: any, lines: string[] }} s
    * @param {string | null | undefined} shown
    * @param {boolean} compact
+   * @param {number} sidebarPx
    */
-  subRow(t, s, shown, compact) {
+  subRow(t, s, shown, compact, sidebarPx) {
     const k = s.t;
     const st = kidStatus(k, this.listed);
     const pic = icon(k.program, 14, t.foreground);
@@ -269,8 +270,8 @@ export default class Agents extends View {
         .when(l === "└" || l === "├", el => el.border_b(1.5).rounded_bl(6))))
       .when(Boolean(pic), el => el.child(div().mr(8).child(pic)))
       .child(div().flex_1().truncate().text_color(on ? t.foreground : t.muted).child(k.name || k.template || k.program?.name || k.address))
-      .when(Boolean(kept), (el) => el.child(this.meter.subReading(t, kept)))
-      .child(this.status(t, { status: st }, compact));
+      .when(Boolean(kept), (el) => el.child(this.meter.subReading(t, kept, sidebarPx)))
+      .child(this.status(t, { status: st }, compact || Boolean(kept)));
   }
 
   // compact: a ! for blocked where a header already says "Needs you".
@@ -294,6 +295,7 @@ export default class Agents extends View {
     const t = /** @type {Record<string, Color>} */ (theme());
     if (props()?.sortMenu) return this.sortMenu(t);
     const collapsed = narrow();
+    const sidebarPx = find(layout(), "sidebar")?.size?.px ?? Infinity;
     const sort = sortOf();
     let list = agents();
     this.listed = new Map(list.map((a) => [a.address, a]));
@@ -326,7 +328,7 @@ export default class Agents extends View {
       const subs = collapsed ? [] : this.tree(all, a.address);
       const r = row(a, i, subs);
       if (this.folded.has(a.address)) return [r];
-      return [r, ...subs.map((s) => this.subRow(t, s, shown, byPriority))];
+      return [r, ...subs.map((s) => this.subRow(t, s, shown, byPriority, sidebarPx))];
     };
 
     // The fold chevron; folded, the count too, colored by the most urgent one.
