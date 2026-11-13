@@ -188,7 +188,7 @@ simple, all meter polling/rendering lives in `meter.js` and space-tag/label help
 
 The behavior hunks:
 
-1. **Imports:** `import { Meter } from "./meter.js";` and `import { SPACE_TAG_W, agentRowName, spaceColor, spaceTags } from "./tags.js";`,
+1. **Imports:** `import { Meter } from "./meter.js";` and `import { agentRowName, SPACE_TAG_W, spaceColor, spaceTags } from "./tags.js";`,
    plus `exec`, `hc`, `home`, `readTextFile` from `"herdr"`.
 2. **`init(_props, cx)`:** instantiates `this.meter = new Meter(cx, { ui: { div, h_flex }, host: { exec, hc, readTextFile, home: home() }, agents, props })`.
 3. **`render()` — `this.listed` & tags:** maps each address to its `AgentInfo` instead of its status
