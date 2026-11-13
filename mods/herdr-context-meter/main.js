@@ -1,11 +1,22 @@
-// @ts-nocheck
 // Agents in grouped or priority views; parents take their most urgent sub-agent's place.
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
+import { agents, exec, hc, home, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, readTextFile, window, layout } from "herdr";
 import { Meter } from "./meter.js";
 
+/** @typedef {import("gpui-kit").Color} Color */
+/** @typedef {import("gpui-kit").Context} Context */
+/** @typedef {import("herdr").AgentInfo} AgentInfo */
+/** @typedef {import("herdr").PaneInfo} PaneInfo */
+/** @typedef {import("herdr").Program} Program */
+/** @typedef {import("herdr").TabInfo} TabInfo */
+
+/**
+ * @param {any} node
+ * @param {string} id
+ * @returns {any}
+ */
 function find(node, id) {
   if (node?.id === id) return node;
   for (const child of node?.children ?? []) {
@@ -27,9 +38,12 @@ function toggleSidebar() {
   run("layout.resize", { id: "sidebar", px: narrow() ? (shared("sidebar.width") ?? 268) : window()?.platform === "macos" ? 76 : 44 });
 }
 
+/** @param {string | null | undefined} s */
 const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
 
+/** @param {PaneInfo[]} all */
 function leadPanes(all) {
+  /** @type {Map<string, PaneInfo>} */
   const leads = new Map();
   for (const p of all) {
     if (!p.terminal) continue;
@@ -40,6 +54,10 @@ function leadPanes(all) {
   return leads;
 }
 
+/**
+ * @param {TabInfo} tab
+ * @param {PaneInfo | AgentInfo | undefined} l
+ */
 function title(tab, l) {
   const prog = l?.program?.name;
   const live = clean(l?.title);
@@ -48,9 +66,15 @@ function title(tab, l) {
   const telling = live && live !== prog && !path && !live.includes("@") && live.toLowerCase() !== l?.program?.key;
   return (tab.name === prog || !tab.named) && telling ? live : tab.name;
 }
+/** @type {Record<string, number>} */
 const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
 // A sub-agent without a pane isn't in agents(): its raw word, error counting as
 // blocked. It's never done: it reports to its parent, and the parent's done is the news.
+/**
+ * @param {any} k
+ * @param {Map<string, string>} listed
+ * @returns {string}
+ */
 const kidStatus = (k, listed) => {
   const s = listed.get(k.address) ?? k.status;
   return s === "error" ? "blocked" : s === "done" ? "idle" : s;
@@ -60,9 +84,12 @@ const SORTS = [
   { id: "grouped", label: "Grouped by space", icon: "layers" },
 ];
 const sortOf = () => SORTS.find((s) => s.id === shared("agents.sort")) ?? SORTS[0];
+/** @type {Record<number, string>} */
 const SECTION = { 4: "Needs you", 3: "Done", 2: "Working", 1: "Idle" };
+/** @type {Record<number, string>} */
 const SECTION_STATUS = { 4: "blocked", 3: "done", 2: "working" };
 
+/** @param {number} ms */
 function duration(ms) {
   const m = Math.floor(ms / 60000);
   if (m < 1) return "<1m";
@@ -72,26 +99,50 @@ function duration(ms) {
 }
 
 // The agent's icon from the app's program table: a one-color glyph or a picture.
+/**
+ * @param {Program | null | undefined} p
+ * @param {number} size
+ * @param {Color} color
+ */
 function icon(p, size, color) {
   if (!p?.icon) return null;
   return p.tint ? svg(p.icon).size(size).flex_none().text_color(color) : image(p.icon).w(size).h(size).flex_none();
 }
 
 export default class Agents extends View {
+  /**
+   * @param {unknown} _props
+   * @param {Context} cx
+   */
   init(_props, cx) {
     if (props()?.sortMenu) return;
+    /** @type {Set<string>} */
     this.folded = new Set();
+    /** @type {string | null} */
+    this.hovered = null;
     // Each agent's last state and when it changed (ms), kept across restarts.
+    /** @type {Record<string, { s: string, at: number }>} */
     this.changed = JSON.parse(localStorage.getItem("changed") ?? "{}");
+    /** @type {string[]} */
     this.pendingPins = JSON.parse(localStorage.getItem("pins") ?? "[]");
     if (!this.pendingPins.length) localStorage.removeItem("pins");
+    /** @type {Set<string>} */
     this.migratingPins = new Set();
-    this.meter = new Meter(cx);
+    this.meter = new Meter(cx, {
+      ui: { div, h_flex },
+      host: { exec, hc, readTextFile, home: home() },
+      agents,
+      props,
+    });
     cx.timer.every(30000, (cx) => cx.notify());
   }
 
   // Stamps agents whose state changed. Done and idle count as one: looking at a
   // finished agent turns done into idle, and looking isn't the agent doing anything.
+  /**
+   * @param {AgentInfo[]} list
+   * @param {number} now
+   */
   track(list, now) {
     let dirty = false;
     for (const a of list) {
@@ -109,6 +160,7 @@ export default class Agents extends View {
 
   // Keep offline pins until their terminal returns, and keep each pending until
   // core echoes the label so a failed write doesn't erase the old pin.
+  /** @param {any[]} all */
   migratePins(all) {
     const listed = new Map(all.filter((t) => t.state === "live").map((t) => [t.address, t]));
     const pending = this.pendingPins.filter((address) => {
@@ -127,14 +179,17 @@ export default class Agents extends View {
     else localStorage.removeItem("pins");
   }
 
+  /** @param {AgentInfo} a */
   since(a) {
     return this.changed[a.address]?.at ?? 0;
   }
 
+  /** @param {AgentInfo} a */
   rank(a) {
     return RANK[a.status] ?? 0;
   }
 
+  /** @param {Record<string, Color>} t */
   sortMenu(t) {
     const on = sortOf().id;
     return v_flex()
@@ -161,11 +216,18 @@ export default class Agents extends View {
         .when(s.id === on, (el) => el.child(svg("mods/workspace-chrome/check.svg").size(14).flex_none().text_color(t.foreground)))));
   }
 
+  /** @param {string} addr */
   peek(addr) {
     run("terminal.peek", { terminal: addr });
   }
 
   // Live sub-agents of `addr`, depth first, each with the tree lines in front of it.
+  /**
+   * @param {any[]} all
+   * @param {string} addr
+   * @param {string[]} [lead]
+   * @returns {{ t: any, lines: string[] }[]}
+   */
   tree(all, addr, lead = []) {
     const kids = all.filter((k) => k.parent === addr && k.state === "live");
     return kids.flatMap((k, i) => {
@@ -177,6 +239,12 @@ export default class Agents extends View {
     });
   }
 
+  /**
+   * @param {Record<string, Color>} t
+   * @param {{ t: any, lines: string[] }} s
+   * @param {string | null | undefined} shown
+   * @param {boolean} compact
+   */
   subRow(t, s, shown, compact) {
     const k = s.t;
     const st = kidStatus(k, this.listed);
@@ -204,18 +272,24 @@ export default class Agents extends View {
   }
 
   // compact: a ! for blocked where a header already says "Needs you".
+  /**
+   * @param {Record<string, Color>} t
+   * @param {{ status: string }} a
+   * @param {boolean} [compact]
+   */
   status(t, a, compact = false) {
     const color = t[a.status] ?? t.dim;
     if (a.status === "working") return svg("mods/workspace-chrome/spinner.svg").size(12).mx(1).flex_none().text_color(t.working).spin(900);
-    if (a.status === "blocked" && compact) return div().size(14).flex_none().rounded(4).bg(t.blocked + "26").text_size(10.5).font_bold().text_color(t.blocked).flex().items_center().justify_center().child("!");
-    if (a.status === "blocked") return div().flex_none().px(6).h(18).rounded(5).bg(t.blocked + "26").text_size(10.5).font_semibold().text_color(t.blocked).flex().items_center().child("Needs you");
+    if (a.status === "blocked" && compact) return div().size(14).flex_none().rounded(4).bg(/** @type {Color} */ (`${t.blocked}26`)).text_size(10.5).font_bold().text_color(t.blocked).flex().items_center().justify_center().child("!");
+    if (a.status === "blocked") return div().flex_none().px(6).h(18).rounded(5).bg(/** @type {Color} */ (`${t.blocked}26`)).text_size(10.5).font_semibold().text_color(t.blocked).flex().items_center().child("Needs you");
     // Idle: a ring; done: a dot.
     if (a.status === "idle") return div().size(7).mx(3).flex_none().rounded(4).border(1.5).border_color(t.idle ?? t.dim);
-    return div().size(7).mx(3).flex_none().rounded(4).bg(a.status === "done" ? color : t.dim + "00");
+    return div().size(7).mx(3).flex_none().rounded(4).bg(a.status === "done" ? color : /** @type {Color} */ (`${t.dim}00`));
   }
 
-  render(cx) {
-    const t = theme();
+  /** @param {Context} _cx */
+  render(_cx) {
+    const t = /** @type {Record<string, Color>} */ (theme());
     if (props()?.sortMenu) return this.sortMenu(t);
     const collapsed = narrow();
     const sort = sortOf();
@@ -234,6 +308,7 @@ export default class Agents extends View {
     for (const a of list) tabCounts.set(a.tab, (tabCounts.get(a.tab) ?? 0) + 1);
     const byPriority = sort.id === "priority";
     const urgency = new Map(list.map((a) => [a.address, Math.max(this.rank(a), ...this.tree(all, a.address).map((s) => RANK[kidStatus(s.t, this.listed)] ?? 0))]));
+    /** @param {AgentInfo} a */
     const rankOf = (a) => urgency.get(a.address);
     if (byPriority) list = [...list].sort((x, y) => rankOf(y) - rankOf(x) || this.since(y) - this.since(x) || y.seq - x.seq);
     const pinned = list.filter((a) => a.pinned);
@@ -241,6 +316,10 @@ export default class Agents extends View {
     list = [...pinned, ...rest];
     setAgentOrder(list.map((a) => a.address));
 
+    /**
+     * @param {AgentInfo} a
+     * @param {number} i
+     */
     const withKids = (a, i) => {
       const subs = collapsed ? [] : this.tree(all, a.address);
       const r = row(a, i, subs);
@@ -249,9 +328,13 @@ export default class Agents extends View {
     };
 
     // The fold chevron; folded, the count too, colored by the most urgent one.
+    /**
+     * @param {AgentInfo} a
+     * @param {{ t: any, lines: string[] }[]} subs
+     */
     const fold = (a, subs) => {
       const sts = subs.map((s) => kidStatus(s.t, this.listed));
-      const top = sts.reduce((m, s) => ((RANK[s] ?? 0) > (RANK[m] ?? 0) ? s : m), null);
+      const top = sts.reduce((/** @type {string | null} */ m, s) => ((RANK[s] ?? 0) > (RANK[m] ?? 0) ? s : m), null);
       const open = !this.folded.has(a.address);
       return div()
         .id(`fold-${a.address}`)
@@ -285,14 +368,21 @@ export default class Agents extends View {
       const many = tabCounts.get(a.tab) > 1;
       return [a.address, tab ? title(many ? { ...tab, named: false } : tab, many ? a : leads.get(a.tab)) : (a.title || a.program?.name || "")];
     }));
+    /** @param {AgentInfo} a */
     const label = (a) => labels.get(a.address);
     const detail = new Map(list.map(a => [a.address, /^\d+$/.test(label(a)) ? null : label(a)]));
+    /** @type {Record<string, number>} */
     const seen = {};
     for (const a of list) { const k = `${a.space_name}\u0000${detail.get(a.address) ?? ""}`; seen[k] = (seen[k] ?? 0) + 1; }
     for (const a of list) {
       if (detail.get(a.address) == null && seen[`${a.space_name}\u0000`] > 1) detail.set(a.address, label(a));
     }
 
+    /**
+     * @param {AgentInfo} a
+     * @param {number} i
+     * @param {{ t: any, lines: string[] }[]} [subs]
+     */
     const row = (a, i, subs = []) => {
       const pic = icon(a.program, 16, t.foreground);
       const more = detail.get(a.address);
@@ -381,6 +471,7 @@ export default class Agents extends View {
 
     // Groups in list order: spaces (grouped) or priority sections. Agents of a
     // space are next to each other in agents(), so neighbours make a group.
+    /** @type {{ id: string, label: string, status: string | null, members: AgentInfo[] }[]} */
     const groups = pinned.length ? [{ id: "pinned", label: "Pinned", status: null, members: pinned }] : [];
     for (const a of rest) {
       const r = rankOf(a) || RANK.idle;
@@ -390,9 +481,10 @@ export default class Agents extends View {
     }
 
     // A group's header; it folds the group. Folded, it says how many and the most urgent state.
+    /** @param {{ id: string, label: string, status: string | null, members: AgentInfo[] }} g */
     const header = (g) => {
       const open = !this.folded.has(g.id);
-      const top = g.members.reduce((m, a) => ((RANK[a.status] ?? 0) > (RANK[m] ?? 0) ? a.status : m), null);
+      const top = g.members.reduce((/** @type {string | null} */ m, a) => ((RANK[a.status] ?? 0) > (RANK[m] ?? 0) ? a.status : m), null);
       return h_flex()
         .id(g.id)
         .px(8)
