@@ -218,6 +218,34 @@ export const percentText = (pct) => `${Math.round(pct)}%`;
 /** @param {number} n */
 export const grouped = (n) => Math.round(n).toLocaleString("en-US");
 
+/** @param {number} n */
+export function compactTokens(n) {
+  if (n >= 1_000_000) {
+    const m = n / 1_000_000;
+    return `${Number.isInteger(m) ? m : m.toFixed(1)}M`;
+  }
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+  return String(Math.round(n));
+}
+
+/** @param {string | null | undefined} model */
+export function shortModel(model) {
+  if (!model) return "";
+  return model.replace(/^claude-/, "").replace(/-\d{8}$/, "");
+}
+
+/**
+ * Compact second-line metadata: short model name and token counts (e.g. "opus-4-6 120k/200k").
+ * @param {string | null | undefined} model
+ * @param {number} used
+ * @param {number} window
+ */
+export function formatReadingMeta(model, used, window) {
+  const counts = `${compactTokens(used)}/${compactTokens(window)}`;
+  const name = shortModel(model);
+  return name ? `${name} ${counts}` : counts;
+}
+
 /**
  * The hover text: the tab, then what was counted.
  * @param {string} tab

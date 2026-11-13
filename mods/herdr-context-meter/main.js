@@ -4,6 +4,7 @@ import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, exec, hc, home, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, readTextFile, window, layout } from "herdr";
 import { Meter } from "./meter.js";
+import { agentRowName, spaceColor, spaceTags } from "./tags.js";
 
 /** @typedef {import("gpui-kit").Color} Color */
 /** @typedef {import("gpui-kit").Context} Context */
@@ -381,6 +382,8 @@ export default class Agents extends View {
     for (const a of list) {
       if (detail.get(a.address) == null && seen[`${a.space_name}\u0000`] > 1) detail.set(a.address, label(a));
     }
+    const tags = spaceTags(list);
+    const spaceColors = /** @type {Record<string, string>} */ (shared("space.colors") ?? {});
 
     /**
      * @param {AgentInfo} a
@@ -432,9 +435,11 @@ export default class Agents extends View {
         })
         .child(svg(`mods/workspace-chrome/${isPinned ? "pin-off" : "pin"}.svg`).size(13));
       // Under a space header the space goes without saying; an automatic tab number says nothing.
-      // Without a space header above (priority, pinned) the row names its space.
+      // Without a space header above (priority, pinned) the row shows the space as a colored tag.
       const full = byPriority || isPinned;
-      const name = full ? a.space_name || label(a) : more ?? (/^\d+$/.test(label(a)) ? a.program?.name || label(a) : label(a));
+      const showTag = full && Boolean(a.space_name);
+      const tag = showTag ? (tags.get(a.space) ?? "?") : "";
+      const agentName = agentRowName(a, more, label(a));
       return v_flex()
         .id(`ag-${a.address}`)
         .px(8)
@@ -455,22 +460,37 @@ export default class Agents extends View {
           h_flex()
             .items_center()
             .gap(9)
+            .when(showTag, (el) => el.tooltip(a.space_name))
+            .when(showTag, (el) =>
+              el.child(
+                h_flex()
+                  .h(18)
+                  .min_w(18)
+                  .px(tag.length > 1 ? 3 : 0)
+                  .flex_none()
+                  .rounded(5)
+                  .bg(spaceColor(a.space, spaceColors, t))
+                  .items_center()
+                  .justify_center()
+                  .text_size(tag.length > 1 ? 9.5 : 10.5)
+                  .font_bold()
+                  .text_color("#ffffff")
+                  .child(tag),
+              ),
+            )
             .when(Boolean(pic), el => el.child(div().id(`agent-fold-${a.address}`)
               .when(subs.length > 0, el => el.on_click((_e, cx) => {
                 cx.stop_propagation();
                 this.folded.has(a.address) ? this.folded.delete(a.address) : this.folded.add(a.address);
                 cx.notify();
               })).child(pic)))
-            .child(h_flex().flex_1().min_w(0).gap(5).items_center()
-              .child(div().min_w(0).max_w(full && more ? 120 : 200).truncate().text_color(idle ? t.muted : t.foreground).child(name))
-              .when(full && Boolean(more), el => el.child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`\u00b7 ${more}`))))
+            .child(div().flex_1().min_w(0).truncate().text_color(idle ? t.muted : t.foreground).child(agentName))
             .when(Boolean(machine), el => el.child(div().text_size(10).text_color(t.dim).child(machine)))
             .when(subs.length > 0, el => el.child(fold(a, subs)))
             .when(this.hovered === a.address, el => el.child(pin))
-            .when(this.hovered !== a.address && Boolean(when), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
             .child(this.status(t, a, byPriority && !isPinned)),
         )
-        .child(this.meter.rowLine(t, a, Boolean(pic)));
+        .child(this.meter.rowLine(t, a, Boolean(pic), when ? duration(now - when) : null));
     };
 
     // Groups in list order: spaces (grouped) or priority sections. Agents of a

@@ -231,3 +231,26 @@ test("subReading: at the default 268 px sidebar the share shows; below 240 px on
   assert.equal(tight.children[0].children[0].props.bg, THEME.working);
   assert.match(String(tight.props.tooltip), /45%/);
 });
+
+test("rowLine: shows compact model + token counts when ok and elapsed time on the right", () => {
+  const now = 5000;
+  const meter = makeMeter(() => now);
+  meter.result = {
+    at: now,
+    entries: new Map([
+      ["t1", okEntry(60)],
+      ["t2", { state: "na", reason: "no session file" }],
+    ]),
+  };
+
+  const okRow = meter.rowLine(THEME, makeAgent("t1"), true, "12m");
+  assert.equal(okRow.children[1].children[0], "60%");
+  assert.equal(okRow.children[2].children[0], "opus-4-6 120k/200k");
+  assert.equal(okRow.children[3].children[0], "12m");
+
+  const naRow = meter.rowLine(THEME, makeAgent("t2"), true, "<1m");
+  assert.equal(naRow.children[1].children[0], "n/a");
+  assert.equal(naRow.children[2].kind, "div");
+  assert.equal(naRow.children[2].children.length, 0);
+  assert.equal(naRow.children[3].children[0], "<1m");
+});
