@@ -232,7 +232,7 @@ any annotation still missing.
 |---|---|---|
 | `warn` | `40` | Share (percent of the window) from which the entry is yellow. |
 | `critical` | `50` | Share from which it is red. A missing value, or one that is not a number above 0 and up to 100, falls back to its own default; if `warn` is then not below `critical`, both fall back to the defaults. |
-| `windows` | `{}` | Window per Claude or `agy` model, in tokens: `{ "claude-opus-5": 500000 }`. A key is a model id or its start; the longest match wins and beats the built-in table. Setting a smaller window than the real one makes the shares reach the thresholds sooner. |
+| `windows` | `{}` | Window per Claude or `agy` model, in tokens: `{ "claude-opus-5": 500000 }`. A key is a model id or its start (an `agy` display name such as `Gemini 4 Argon (High)` is matched as `gemini-4-argon`); the longest match wins and beats the built-in table. Setting a smaller window than the real one makes the shares reach the thresholds sooner. |
 
 ## Develop
 

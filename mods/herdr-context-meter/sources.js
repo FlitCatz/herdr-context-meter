@@ -203,21 +203,6 @@ export async function openFiles(host, targets) {
 }
 
 /**
- * Codex keeps its rollout file open, so the file a terminal's Codex has open is its session:
- * exact, where a folder match is not (two Codex terminals can share a folder, and a session in
- * a worktree has another cwd than the terminal). The files of every Codex terminal are found
- * with one `ps` and one `lsof`.
- * @param {Host} host
- * @param {Map<string, Foreground>} codex by terminal address
- * @returns {Promise<Map<string, string[]>>}
- */
-export async function openRollouts(host, codex) {
-  const byAddress = await openFiles(host, codex);
-  for (const [address, files] of byAddress) byAddress.set(address, files.filter((f) => ROLLOUT.test(f)));
-  return byAddress;
-}
-
-/**
  * Whether a rollout belongs to a sub-agent thread (an approval guardian, a spawned agent),
  * from the keys of its session_meta line: only the part before `base_instructions` is looked
  * at, and only unescaped keys match, so instruction text cannot pass for one. Remembered per
@@ -322,7 +307,7 @@ async function readAgy(host, open, model, ctx) {
   const uuids = agyUuidsFromFiles(open);
   if (uuids.length === 0) return missing("session file not found", "agy");
   const paths = uuids.map((id) => `${host.home}/.gemini/antigravity-cli/brain/${id}/.system_generated/logs/transcript.jsonl`);
-  const recs = await Promise.all(paths.map((path) => tailParse(host, path, parseAgyTail)));
+  const recs = await Promise.all(paths.map((path) => tailParse(host, path, parseAgyTail).catch(none)));
   const latest = recs.filter((r) => r !== null).sort((a, b) => b.at - a.at)[0];
   return latest ? agyReading(latest, model, ctx.windows) : missing("no usage recorded yet", "agy");
 }
@@ -382,6 +367,9 @@ export async function readAll(host, agents, ctx) {
       else if (kind === "claude") entries.set(agent.address, await readClaude(host, fg, ctx));
       else if (!openByAddress) entries.set(agent.address, missing(openFailure, kind));
       else if (kind === "codex") {
+        // Codex keeps its rollout file open, so the file a terminal's Codex has open is its
+        // session: exact, where a folder match is not (two Codex terminals can share a folder,
+        // and a session in a worktree has another cwd than the terminal).
         const rollouts = (openByAddress.get(agent.address) ?? []).filter((f) => ROLLOUT.test(f));
         entries.set(agent.address, await readCodex(host, rollouts, ctx));
       } else {

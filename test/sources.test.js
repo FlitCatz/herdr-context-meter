@@ -446,3 +446,22 @@ test("Agy: reads transcript.jsonl via shared ps+lsof with Codex and resolves mod
   assert.deepEqual(entries.get("t3"), { state: "na", reason: "session file not found", kind: "agy" });
   assert.equal(entries.get("t4")?.state, "ok");
 });
+
+test("Agy: a missing transcript is no usage yet, and does not hide another open conversation's", async () => {
+  const fresh = "2e8230b5-4816-4ef8-9fee-5b61efd5e974";
+  const recorded = "c4e79c68-1f64-4464-80bf-592d8f51aa9f";
+  const transcript = `${HOME}/.gemini/antigravity-cli/brain/${recorded}/.system_generated/logs/transcript.jsonl`;
+  const host = fakeHost({
+    hc: { t1: terminal(101, ["agy", "--model", "gemini-4-hydrogen-medium"]), t2: terminal(102, ["agy", "--model", "gemini-4-hydrogen-medium"]) },
+    ps: "101 1\n102 1\n",
+    lsof: [
+      `p101\nn${HOME}/.gemini/antigravity-cli/conversations/${fresh}.db`,
+      `p102\nn${HOME}/.gemini/antigravity-cli/conversations/${fresh}.db\nn${HOME}/.gemini/antigravity-cli/brain/${recorded}`,
+    ].join("\n"),
+    files: { [transcript]: AGY },
+  });
+  const entries = await readAll(host, [agyAgent("t1"), agyAgent("t2")], ctx());
+  assert.deepEqual(entries.get("t1"), { state: "na", reason: "no usage recorded yet", kind: "agy" });
+  const e2 = entries.get("t2");
+  assert.equal(e2?.state === "ok" && e2.used, 121755);
+});

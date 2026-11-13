@@ -218,15 +218,15 @@ export function parseAgyTail(text) {
 }
 
 /**
- * Normalizes an agy Claude display name (e.g. "Claude Opus 5.5 (High)") to a model id prefix
- * for `claudeWindow`.
- * @param {string} id
+ * Normalizes an agy display name (e.g. "Gemini 4 Argon (High)") to its model id form
+ * ("gemini-4-argon"); an id is left as it is.
+ * @param {string} model
  */
-function normalizeAgyClaudeId(id) {
-  return id
+function normalizeAgyId(model) {
+  return model
     .toLowerCase()
     .replace(/\s+\((?:low|medium|high|xhigh|max)\)$/, "")
-    .replace(/[.\s]+/g, "-");
+    .replace(/\s+/g, "-");
 }
 
 /**
@@ -237,12 +237,11 @@ function normalizeAgyClaudeId(id) {
  * @returns {{ tokens: number, assumed: boolean }}
  */
 export function agyWindow(model, overrides = {}) {
-  const id = model ?? "";
+  const id = normalizeAgyId(model ?? "");
+  if (id.startsWith("claude-")) return claudeWindow(id.replace(/\./g, "-"), overrides);
   const hit = windowOverride(id, overrides);
   if (hit !== null) return { tokens: hit, assumed: false };
-  if (/^claude[-\s]/i.test(id)) return claudeWindow(normalizeAgyClaudeId(id), overrides);
-  const known = /^gemini[-\s]|^orchestrator\b/i.test(id);
-  return { tokens: AGY_GEMINI_WINDOW, assumed: !known };
+  return { tokens: AGY_GEMINI_WINDOW, assumed: !id.startsWith("gemini-") };
 }
 
 /**
@@ -305,7 +304,7 @@ export function shortModel(model) {
   if (!model) return "";
   const trimmed = model
     .replace(/\s+\((?:Low|Medium|High|XHigh|Max)\)$/i, "")
-    .replace(/-(?:low|medium|high|xhigh|max)$/i, "");
+    .replace(/^((?:gemini|claude)-.+)-(?:low|medium|high|xhigh|max)$/i, "$1");
   if (/^gemini-/i.test(trimmed)) {
     return trimmed
       .split("-")
