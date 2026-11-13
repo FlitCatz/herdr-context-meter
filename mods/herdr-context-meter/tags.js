@@ -25,32 +25,41 @@ export function spaceColor(spaceId, colors, t) {
   return /** @type {Color} */ (color.startsWith("#") ? color : (SPACE_MARK[color] ?? t[color] ?? SPACE_MARK.ansi6));
 }
 
+export const SPACE_TAG_MAX = 3;
+
 /**
- * Compute deterministic 1- or 2-letter tag text for a space name.
- * Uses 1 letter by default; when `collide` is true, uses the first letters of the
- * first two word segments (or the first two characters for a single-word name).
+ * Tag text of `length` characters for a space name. Length 1 is exactly the Spaces
+ * list badge letter; longer tags take the initials of the name's word segments,
+ * then fill up with the following characters of the last segment used.
  * @param {string | null | undefined} name
- * @param {boolean} collide
+ * @param {number} length
  * @returns {string}
  */
-export function spaceTagText(name, collide) {
-  const trimmed = (name ?? "").trim();
-  if (!trimmed) return "?";
-  const segments = trimmed.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  if (!segments.length) return [...trimmed][0].toUpperCase();
-  const firstChars = [...segments[0]];
-  const initial = firstChars[0].toUpperCase();
-  if (!collide) return initial;
-  if (segments.length >= 2) {
-    const secondChar = [...segments[1]][0];
-    if (secondChar) return initial + secondChar.toUpperCase();
-  }
-  return firstChars.slice(0, 2).join("").toUpperCase();
+export function spaceTagText(name, length) {
+  const first = [...(name ?? "")][0]?.toUpperCase() ?? "?";
+  const segments = (name ?? "").split(/[^\p{L}\p{N}]+/u).filter(Boolean).map((seg) => [...seg]);
+  if (length <= 1 || !segments.length) return first;
+  const used = segments.slice(0, length);
+  const chars = used.map((seg) => seg[0]);
+  chars.push(...used[used.length - 1].slice(1, 1 + length - chars.length));
+  return chars.join("").toUpperCase();
+}
+
+/**
+ * Pixel width of a space badge, fixed per tag length so the row's second line can align
+ * under the agent name.
+ * @param {string} tag
+ * @returns {number}
+ */
+export function spaceTagWidth(tag) {
+  const n = [...tag].length;
+  return n <= 1 ? 18 : 8 + 8 * n;
 }
 
 /**
  * Build a map of `spaceId -> tagText` for all distinct spaces in `list`.
- * Spaces whose initial collides with another distinct space get a 2-letter tag.
+ * Every space starts with its Spaces badge letter; spaces whose tag collides with
+ * another distinct space get one more letter, up to SPACE_TAG_MAX.
  * @param {{ space: string, space_name?: string | null }[]} list
  * @returns {Map<string, string>}
  */
@@ -61,17 +70,16 @@ export function spaceTags(list) {
     if (!item.space || bySpace.has(item.space)) continue;
     bySpace.set(item.space, item.space_name ?? "");
   }
-  /** @type {Map<string, number>} */
-  const initialCounts = new Map();
-  for (const name of bySpace.values()) {
-    const ch = spaceTagText(name, false);
-    initialCounts.set(ch, (initialCounts.get(ch) ?? 0) + 1);
-  }
   /** @type {Map<string, string>} */
   const tags = new Map();
-  for (const [id, name] of bySpace) {
-    const ch = spaceTagText(name, false);
-    tags.set(id, spaceTagText(name, (initialCounts.get(ch) ?? 0) > 1));
+  for (const [id, name] of bySpace) tags.set(id, spaceTagText(name, 1));
+  for (let length = 2; length <= SPACE_TAG_MAX; length++) {
+    /** @type {Map<string, number>} */
+    const counts = new Map();
+    for (const tag of tags.values()) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    for (const [id, tag] of tags) {
+      if ((counts.get(tag) ?? 0) > 1) tags.set(id, spaceTagText(bySpace.get(id), length));
+    }
   }
   return tags;
 }

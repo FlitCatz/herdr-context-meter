@@ -4,7 +4,7 @@ import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, exec, hc, home, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, readTextFile, window, layout } from "herdr";
 import { Meter } from "./meter.js";
-import { agentRowName, spaceColor, spaceTags } from "./tags.js";
+import { agentRowName, spaceColor, spaceTagWidth, spaceTags } from "./tags.js";
 
 /** @typedef {import("gpui-kit").Color} Color */
 /** @typedef {import("gpui-kit").Context} Context */
@@ -440,6 +440,7 @@ export default class Agents extends View {
       const showTag = full && Boolean(a.space_name);
       const tag = showTag ? (tags.get(a.space) ?? "?") : "";
       const agentName = agentRowName(a, more, label(a));
+      const nameIndent = (showTag ? spaceTagWidth(tag) + 9 : 0) + (pic ? 25 : 0);
       return v_flex()
         .id(`ag-${a.address}`)
         .px(8)
@@ -460,13 +461,12 @@ export default class Agents extends View {
           h_flex()
             .items_center()
             .gap(9)
-            .when(showTag, (el) => el.tooltip(a.space_name))
             .when(showTag, (el) =>
               el.child(
                 h_flex()
+                  .id(`ag-tag-${a.address}`)
                   .h(18)
-                  .min_w(18)
-                  .px(tag.length > 1 ? 3 : 0)
+                  .w(spaceTagWidth(tag))
                   .flex_none()
                   .rounded(5)
                   .bg(spaceColor(a.space, spaceColors, t))
@@ -475,6 +475,7 @@ export default class Agents extends View {
                   .text_size(tag.length > 1 ? 9.5 : 10.5)
                   .font_bold()
                   .text_color("#ffffff")
+                  .tooltip(a.space_name)
                   .child(tag),
               ),
             )
@@ -490,7 +491,7 @@ export default class Agents extends View {
             .when(this.hovered === a.address, el => el.child(pin))
             .child(this.status(t, a, byPriority && !isPinned)),
         )
-        .child(this.meter.rowLine(t, a, Boolean(pic), when ? duration(now - when) : null));
+        .child(this.meter.rowLine(t, a, nameIndent, when ? duration(now - when) : null));
     };
 
     // Groups in list order: spaces (grouped) or priority sections. Agents of a

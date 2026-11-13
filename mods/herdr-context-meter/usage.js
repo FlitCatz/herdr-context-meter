@@ -220,11 +220,8 @@ export const grouped = (n) => Math.round(n).toLocaleString("en-US");
 
 /** @param {number} n */
 export function compactTokens(n) {
-  if (n >= 1_000_000) {
-    const m = n / 1_000_000;
-    return `${Number.isInteger(m) ? m : m.toFixed(1)}M`;
-  }
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+  if (Math.round(n / 1_000) >= 1_000) return `${Number((n / 1_000_000).toFixed(1))}M`;
+  if (Math.round(n) >= 1_000) return `${Math.round(n / 1_000)}k`;
   return String(Math.round(n));
 }
 

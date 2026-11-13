@@ -157,15 +157,15 @@ export class Meter {
    * Second line under an expanded agent row.
    * @param {Record<string, Color>} t
    * @param {import("herdr").AgentInfo} a
-   * @param {boolean} hasIcon
+   * @param {number} indent left padding that lines the bar up under the agent name
    * @param {string | null} [elapsed]
    */
-  rowLine(t, a, hasIcon, elapsed = null) {
+  rowLine(t, a, indent, elapsed = null) {
     const { div } = this.deps.ui;
     const { ok } = this.inspect(a);
     const meta = ok ? formatReadingMeta(ok.model, ok.used, ok.window) : null;
     return this.reading(t, a, `ctx-${a.address}`, BAR_W)
-      .pl(hasIcon ? 25 : 0)
+      .pl(indent)
       .when(Boolean(meta), (el) =>
         el.child(div().flex_1().min_w(0).truncate().text_size(10).text_color(t.dim).child(meta)),
       )

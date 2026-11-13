@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SPACE_MARK, agentRowName, spaceColor, spaceTagText, spaceTags } from "../mods/herdr-context-meter/tags.js";
+import { agentRowName, spaceColor, spaceTagText, spaceTagWidth, spaceTags } from "../mods/herdr-context-meter/tags.js";
 import { compactTokens, formatReadingMeta, shortModel } from "../mods/herdr-context-meter/usage.js";
 
 test("spaceTags: unique initials use one letter; collisions use two letters deterministically", () => {
@@ -21,6 +21,32 @@ test("spaceTags: unique initials use one letter; collisions use two letters dete
   assert.equal(tags.get("s6"), "M");
 });
 
+test("spaceTags: two-letter tags that still collide get a third letter", () => {
+  const tags = spaceTags([
+    { space: "s1", space_name: "herdr-tab-namer" },
+    { space: "s2", space_name: "herdr-token-viewer" },
+    { space: "s3", space_name: "herdr-context-meter" },
+    { space: "s4", space_name: "herdr-tab" },
+  ]);
+
+  assert.equal(tags.get("s1"), "HTN");
+  assert.equal(tags.get("s2"), "HTV");
+  assert.equal(tags.get("s3"), "HC");
+  assert.equal(tags.get("s4"), "HTA");
+});
+
+test("spaceTags: without a collision the tag is the Spaces badge letter (raw first character)", () => {
+  const tags = spaceTags([
+    { space: "s1", space_name: ".dotfiles" },
+    { space: "s2", space_name: "_scratch" },
+    { space: "s3", space_name: "mail-server" },
+  ]);
+
+  assert.equal(tags.get("s1"), ".");
+  assert.equal(tags.get("s2"), "_");
+  assert.equal(tags.get("s3"), "M");
+});
+
 test("spaceTags: multiple agents in the same space do not collide with themselves", () => {
   const tags = spaceTags([
     { space: "s1", space_name: "herdr-context-meter" },
@@ -33,23 +59,29 @@ test("spaceTags: multiple agents in the same space do not collide with themselve
 });
 
 test("spaceTagText: handles empty, symbol, single-char, and Unicode names", () => {
-  assert.equal(spaceTagText("", false), "?");
-  assert.equal(spaceTagText("   ", true), "?");
-  assert.equal(spaceTagText("~", false), "~");
-  assert.equal(spaceTagText("a", true), "A");
-  assert.equal(spaceTagText("첫째", true), "첫째");
-  assert.equal(spaceTagText("첫번째-작업", true), "첫작");
+  assert.equal(spaceTagText("", 1), "?");
+  assert.equal(spaceTagText(null, 2), "?");
+  assert.equal(spaceTagText("~", 2), "~");
+  assert.equal(spaceTagText("a", 2), "A");
+  assert.equal(spaceTagText("첫째", 2), "첫째");
+  assert.equal(spaceTagText("첫번째-작업", 2), "첫작");
+});
+
+test("spaceTagWidth: one letter matches the 18 px Spaces badge; longer tags are wider", () => {
+  assert.equal(spaceTagWidth("M"), 18);
+  assert.ok(spaceTagWidth("HC") > 18);
+  assert.ok(spaceTagWidth("HTN") > spaceTagWidth("HC"));
 });
 
 test("spaceColor: matches Spaces MARK palette, supports hex, and falls back to ansi6", () => {
   const theme = /** @type {Record<string, any>} */ ({ ansi6: "#000001", custom: "#123456" });
   const colors = { s1: "ansi3", s2: "#abcdef", s3: "custom" };
 
-  assert.equal(spaceColor("s1", colors, theme), SPACE_MARK.ansi3);
+  assert.equal(spaceColor("s1", colors, theme), "#e3814f");
   assert.equal(spaceColor("s2", colors, theme), "#abcdef");
   assert.equal(spaceColor("s3", colors, theme), "#123456");
-  assert.equal(spaceColor("s4", colors, theme), SPACE_MARK.ansi6);
-  assert.equal(spaceColor("s4", null, theme), SPACE_MARK.ansi6);
+  assert.equal(spaceColor("s4", colors, theme), "#22a99a");
+  assert.equal(spaceColor("s4", null, theme), "#22a99a");
 });
 
 test("agentRowName: prefers de-duplicated detail, else named/title label, else program name over bare tab numbers", () => {
@@ -72,6 +104,9 @@ test("compactTokens, shortModel, formatReadingMeta: compact second-line metadata
   assert.equal(compactTokens(200000), "200k");
   assert.equal(compactTokens(1000000), "1M");
   assert.equal(compactTokens(1250000), "1.3M");
+  assert.equal(compactTokens(999_600), "1M");
+  assert.equal(compactTokens(1_040_000), "1M");
+  assert.equal(compactTokens(999.6), "1k");
 
   assert.equal(shortModel("claude-opus-4-6"), "opus-4-6");
   assert.equal(shortModel("claude-sonnet-4-5-20250929"), "sonnet-4-5");

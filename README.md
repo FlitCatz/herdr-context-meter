@@ -4,7 +4,7 @@ A [Herdr](https://herdr.dev) mod that clones the shipped `agents` sidebar list a
 line under each agent row showing how full its context window is: a short bar, the share in use,
 a color, the model and compact token counts (e.g. `opus-4-6 90k/200k`), and the elapsed time on
 the right. In the Priority (and Pinned) sort, each row shows `[Space Tag][agent icon][agent name]`
-using the same colored badge as the Spaces list (two letters when space initials collide, full
+using the same colored badge as the Spaces list (more letters when space initials collide, full
 space name on hover) so the agent's own name stays in the primary slot. In the "Grouped by space"
 sort, rows already omit the space and stay unchanged on the first line. Sub-agent rows stay one
 line: a sub-agent with its own pane shows a shorter bar and its share on that line, before a
@@ -16,10 +16,10 @@ status bar (`workspace-status`) is left unchanged.
 ```
 Needs you 1
   [M] ▣ fix-login                !
-      ▬▬▬▬ 45% opus-4-6 90k/200k  5m
+        ▬▬▬▬ 45% opus-4-6 90k/200k  5m
 Working 2
   [M] ▣ Claude Code              ◐
-      ▬▬   18% opus-4-6 36k/200k <1m
+        ▬▬   18% opus-4-6 36k/200k <1m
       └ ▣ sub-helper             ◐
 ```
 
@@ -188,7 +188,7 @@ simple, all meter polling/rendering lives in `meter.js` and space-tag/label help
 
 The behavior hunks:
 
-1. **Imports:** `import { Meter } from "./meter.js";` and `import { agentRowName, spaceColor, spaceTags } from "./tags.js";`,
+1. **Imports:** `import { Meter } from "./meter.js";` and `import { agentRowName, spaceColor, spaceTagWidth, spaceTags } from "./tags.js";`,
    plus `exec`, `hc`, `home`, `readTextFile` from `"herdr"`.
 2. **`init(_props, cx)`:** instantiates `this.meter = new Meter(cx, { ui: { div, h_flex }, host: { exec, hc, readTextFile, home: home() }, agents, props })`.
 3. **`render()` — `this.listed` & tags:** maps each address to its `AgentInfo` instead of its status
@@ -202,8 +202,8 @@ The behavior hunks:
    (`h(30)`, `justify_center()`, `gap(3)`) with `.child(this.meter.railBar(t, a))` underneath.
 6. **`row(a, i, subs)` — expanded branch:** in Priority/Pinned rows (`byPriority || isPinned`),
    prepends the colored space-tag badge (`spaceColor` + `tags.get(a.space)`), puts `agentRowName`
-   in the primary slot, and attaches `tooltip(a.space_name)` to the first line; moves elapsed time
-   (`when ? duration(now - when) : null`) off the first line into `this.meter.rowLine(t, a, Boolean(pic), ...)`
+   in the primary slot, and attaches `tooltip(a.space_name)` to the badge; moves elapsed time
+   (`when ? duration(now - when) : null`) off the first line into `this.meter.rowLine(t, a, nameIndent, ...)`
    underneath inside a `v_flex()` (`py(5)`, `gap(3)`).
 7. **`render()` — `ag-sort` button:** `openOverlay({ mod: "herdr-context-meter", ... })` instead of
    `mod: "agents"`.
