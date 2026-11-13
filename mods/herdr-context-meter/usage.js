@@ -218,6 +218,12 @@ export const percentText = (pct) => `${Math.round(pct)}%`;
 /** @param {number} n */
 export const grouped = (n) => Math.round(n).toLocaleString("en-US");
 
+/** @param {string | null | undefined} model */
+export function shortModel(model) {
+  if (!model) return "";
+  return model.replace(/^claude-/, "").replace(/-\d{8}$/, "");
+}
+
 /**
  * The hover text: the tab, then what was counted.
  * @param {string} tab

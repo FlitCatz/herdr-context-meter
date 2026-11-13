@@ -1,21 +1,26 @@
 # herdr-context-meter
 
 A [Herdr](https://herdr.dev) mod that clones the shipped `agents` sidebar list and adds a second
-line under each agent row showing how full its context window is: a short bar, the share in use,
-and a color. Sub-agent rows stay one line: a sub-agent with its own pane shows a shorter bar and
-its share on that line, before a compact status (`!` rather than "Needs you"); in a sidebar
-narrower than 240 px only the bar is left, with the share in its tooltip. A sub-agent without a
-pane has no reading. In the collapsed narrow sidebar rail, each agent row shows a thin 2 px bar
-under its index and status. The bottom status bar (`workspace-status`) is left unchanged.
+line under each agent row showing how full its context window is: `bar % · short model · elapsed`
+(token counts stay in the hover tooltip, and at narrow widths under 240 px the model is dropped
+before the elapsed time). In the Priority (and Pinned) sort, each row shows `[Space Tag][agent icon][agent name]`
+using the same colored badge as the Spaces list in a fixed 3-letter-wide column (more letters when
+space initials collide, full space name on hover) so every row's icon, name, and second line align
+at one shared x. In the "Grouped by space" sort, rows already omit the space and get no tag. Sub-agent rows stay one
+line: a sub-agent with its own pane shows a shorter bar and its share on that line, before a
+compact status (`!` rather than "Needs you"); in a sidebar narrower than 240 px only the bar is
+left, with the share in its tooltip. A sub-agent without a pane has no reading. In the collapsed
+narrow sidebar rail, each agent row shows a thin 2 px bar under its index and status. The bottom
+status bar (`workspace-status`) is left unchanged.
 
 ```
 Needs you 1
-  ▣ my-repo · t2        <1m  !
-    ▬▬▬▬ 45%
+  [ M ] ▣ fix-login                !
+          ▬▬▬▬ 45% · opus-4-6 · 5m
 Working 2
-  ▣ my-repo · t1        <1m  ◐
-    ▬▬   18%
-    └ ▣ sub-helper           ◐
+  [ M ] ▣ Claude Code              ◐
+          ▬▬   18% · opus-4-6 · <1m
+        └ ▣ sub-helper             ◐
 ```
 
 - The share and bar turn yellow (the theme's `working` color) from **40%** and red (the theme's
@@ -178,24 +183,28 @@ last successful read is older than 35 seconds turns to `n/a` instead of showing 
 
 Herdr overwrites its shipped `~/.config/herdr-app/mods/agents/main.js` on every app start, while
 cloned mods stay untouched. `mod.json` records `cloned_from` (`agents` `0.1.15`). To keep re-syncing
-simple, all meter polling and rendering live in `meter.js`. `main.js` differs from the shipped
-`agents/main.js` in two kinds of change.
+simple, all meter polling/rendering lives in `meter.js` and space-tag/label helpers live in
+`tags.js`. `main.js` differs from the shipped `agents/main.js` in two kinds of change.
 
 The behavior hunks:
 
-1. **Imports:** `import { Meter } from "./meter.js";`, plus `exec`, `hc`, `home`, `readTextFile`
-   from `"herdr"`.
+1. **Imports:** `import { Meter } from "./meter.js";` and `import { agentRowName, SPACE_TAG_W, spaceColor, spaceTags } from "./tags.js";`,
+   plus `exec`, `hc`, `home`, `readTextFile` from `"herdr"`.
 2. **`init(_props, cx)`:** instantiates `this.meter = new Meter(cx, { ui: { div, h_flex }, host: { exec, hc, readTextFile, home: home() }, agents, props })`.
-3. **`render()` — `this.listed`:** maps each address to its `AgentInfo` instead of its status, and
-   `kidStatus` reads `listed.get(k.address)?.status`.
+3. **`render()` — `this.listed` & tags:** maps each address to its `AgentInfo` instead of its status
+   (`kidStatus` reads `listed.get(k.address)?.status`), and computes `tags = spaceTags(list)` and
+   `spaceColors = shared("space.colors") ?? {}`.
 4. **`subRow(t, s, shown, compact, sidebarPx)`:** `const kept = this.listed.get(k.address)`; the
    click tests `kept`, `.when(Boolean(kept), (el) => el.child(this.meter.subReading(t, kept, sidebarPx)))`
    goes before the status, and the status is compact when `compact || Boolean(kept)`. `render()`
    reads `sidebarPx` from the sidebar's `size.px` in `layout()` and passes it to each `subRow`.
 5. **`row(a, i, subs)` — collapsed branch:** wraps the index + status `h_flex()` in a `v_flex()`
    (`h(30)`, `justify_center()`, `gap(3)`) with `.child(this.meter.railBar(t, a))` underneath.
-6. **`row(a, i, subs)` — expanded branch:** wraps the row `h_flex()` in a `v_flex()` (`py(5)`,
-   `gap(3)`) with `.child(this.meter.rowLine(t, a, Boolean(pic)))` underneath.
+6. **`row(a, i, subs)` — expanded branch:** in Priority/Pinned rows (`byPriority || isPinned`),
+   prepends the colored space-tag badge (`spaceColor` + `tags.get(a.space)`), puts `agentRowName`
+   in the primary slot, and attaches `tooltip(a.space_name)` to the badge; moves elapsed time
+   (`when ? duration(now - when) : null`) off the first line into `this.meter.rowLine(t, a, nameIndent, ...)`
+   underneath inside a `v_flex()` (`py(5)`, `gap(3)`).
 7. **`render()` — `ag-sort` button:** `openOverlay({ mod: "herdr-context-meter", ... })` instead of
    `mod: "agents"`.
 
@@ -221,10 +230,11 @@ any annotation still missing.
 
 Plain JavaScript with `checkJs`, no build step. `usage.js` (reading and wording rules),
 `sources.js` (finding and tailing session files; all I/O through an injected host),
-`rounds.js` (the no-stall round tickets), and `meter.js` (polling and row/rail drawing through
-injected UI/host) are pure and tested; `main.js` is the cloned `agents` view.
+`rounds.js` (the no-stall round tickets), `tags.js` (space-tag badges and row labels), and
+`meter.js` (polling and row/rail drawing through injected UI/host) are pure and tested; `main.js`
+is the cloned `agents` view.
 
 ```sh
-npm test            # node --test: matching, usage math on fixtures, tail reader, no-stall, meter row/rail
+npm test            # node --test: matching, usage math on fixtures, tail reader, no-stall, meter row/rail, space tags
 npm run check       # herdr-app check (also writes gpui-kit.d.ts) and tsc
 ```

@@ -80,7 +80,7 @@ test("rowLine: pending before first read, then ok / warn (40%) / critical (50%) 
   const a = makeAgent("t1");
 
   // Before first read completes: shows ellipsis and empty track
-  const pendingRow = meter.rowLine(THEME, a, true);
+  const pendingRow = meter.rowLine(THEME, a, 25);
   assert.equal(pendingRow.props.id, "ctx-t1");
   assert.equal(pendingRow.props.pl, 25);
   assert.equal(pendingRow.children[0].props.w, BAR_W);
@@ -99,20 +99,20 @@ test("rowLine: pending before first read, then ok / warn (40%) / critical (50%) 
     ]),
   };
 
-  const rOk = meter.rowLine(THEME, makeAgent("t1"), false);
+  const rOk = meter.rowLine(THEME, makeAgent("t1"), 0);
   assert.equal(rOk.props.pl, 0);
   assert.equal(rOk.children[0].children[0].props.w, "18%");
   assert.equal(rOk.children[0].children[0].props.bg, THEME.muted);
   assert.equal(rOk.children[1].children[0], "18%");
   assert.equal(rOk.children[1].props.text_color, THEME.muted);
 
-  const rWarn = meter.rowLine(THEME, makeAgent("t2"), true);
+  const rWarn = meter.rowLine(THEME, makeAgent("t2"), 25);
   assert.equal(rWarn.children[0].children[0].props.w, "40%");
   assert.equal(rWarn.children[0].children[0].props.bg, THEME.working);
   assert.equal(rWarn.children[1].children[0], "40%");
   assert.equal(rWarn.children[1].props.text_color, THEME.working);
 
-  const rCrit = meter.rowLine(THEME, makeAgent("t3"), true);
+  const rCrit = meter.rowLine(THEME, makeAgent("t3"), 25);
   assert.equal(rCrit.children[0].children[0].props.w, "50%");
   assert.equal(rCrit.children[0].children[0].props.bg, THEME.blocked);
   assert.equal(rCrit.children[1].children[0], "50%");
@@ -131,7 +131,7 @@ test("rowLine and railBar: n/a entries and stale-to-n/a transition after STALE_M
   };
 
   // Fresh n/a entry
-  const naRow = meter.rowLine(THEME, makeAgent("t2"), true);
+  const naRow = meter.rowLine(THEME, makeAgent("t2"), 25);
   assert.equal(naRow.children[0].children.length, 0);
   assert.equal(naRow.children[1].children[0], "n/a");
   assert.equal(naRow.children[1].props.text_color, THEME.dim);
@@ -149,7 +149,7 @@ test("rowLine and railBar: n/a entries and stale-to-n/a transition after STALE_M
 
   // Advance clock past STALE_MS: cached 45% turns into n/a on both rowLine and railBar
   now += STALE_MS;
-  const staleRow = meter.rowLine(THEME, makeAgent("t1"), true);
+  const staleRow = meter.rowLine(THEME, makeAgent("t1"), 25);
   assert.equal(staleRow.children[0].children.length, 0);
   assert.equal(staleRow.children[1].children[0], "n/a");
   assert.equal(staleRow.children[1].props.text_color, THEME.dim);
@@ -190,7 +190,7 @@ test("subReading: a kept sub-agent's reading stays on one line, shorter than the
 
   const crit = meter.subReading(THEME, makeAgent("k1"), 268);
   assert.equal(crit.kind, "h_flex");
-  assert.notEqual(crit.props.id, meter.rowLine(THEME, makeAgent("k1"), true).props.id);
+  assert.notEqual(crit.props.id, meter.rowLine(THEME, makeAgent("k1"), 25).props.id);
   assert.ok("flex_none" in crit.props);
   assert.equal(crit.props.pl, undefined);
   assert.ok(SUB_BAR_W < BAR_W);
@@ -230,4 +230,35 @@ test("subReading: at the default 268 px sidebar the share shows; below 240 px on
   assert.equal(tight.children[0].children[0].props.w, "45%");
   assert.equal(tight.children[0].children[0].props.bg, THEME.working);
   assert.match(String(tight.props.tooltip), /45%/);
+});
+
+test("rowLine: shows bar % · short model · elapsed (no token counts) and drops model before elapsed when narrow", () => {
+  const now = 5000;
+  const meter = makeMeter(() => now);
+  meter.result = {
+    at: now,
+    entries: new Map([
+      ["t1", okEntry(60)],
+      ["t2", { state: "na", reason: "no session file" }],
+    ]),
+  };
+
+  const okRow = meter.rowLine(THEME, makeAgent("t1"), 66, "12m", 268);
+  assert.equal(okRow.props.pl, 66);
+  assert.equal(okRow.children[1].children[0], "60%");
+  assert.equal(okRow.children[2].children[0], "· opus-4-6");
+  assert.equal(okRow.children[3].children[0], "· 12m");
+  assert.match(String(okRow.props.tooltip), /120,000 of 200,000 tokens/);
+
+  const narrowRow = meter.rowLine(THEME, makeAgent("t1"), 66, "12m", 200);
+  assert.equal(narrowRow.children[1].children[0], "60%");
+  assert.equal(narrowRow.children[2].kind, "div");
+  assert.equal(narrowRow.children[2].children.length, 0);
+  assert.equal(narrowRow.children[3].children[0], "· 12m");
+
+  const naRow = meter.rowLine(THEME, makeAgent("t2"), 66, "<1m", 268);
+  assert.equal(naRow.children[1].children[0], "n/a");
+  assert.equal(naRow.children[2].kind, "div");
+  assert.equal(naRow.children[2].children.length, 0);
+  assert.equal(naRow.children[3].children[0], "· <1m");
 });
