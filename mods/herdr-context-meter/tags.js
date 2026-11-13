@@ -26,6 +26,7 @@ export function spaceColor(spaceId, colors, t) {
 }
 
 export const SPACE_TAG_MAX = 3;
+export const SPACE_TAG_W = 8 + 8 * SPACE_TAG_MAX;
 
 /**
  * Tag text of `length` characters for a space name. Length 1 is exactly the Spaces
@@ -46,14 +47,13 @@ export function spaceTagText(name, length) {
 }
 
 /**
- * Pixel width of a space badge, fixed per tag length so the row's second line can align
- * under the agent name.
- * @param {string} tag
+ * Fixed pixel width of the space-tag badge column, sized for SPACE_TAG_MAX (3 letters)
+ * so every row's icon, name, and second line align at one shared x.
+ * @param {string} [_tag]
  * @returns {number}
  */
-export function spaceTagWidth(tag) {
-  const n = [...tag].length;
-  return n <= 1 ? 18 : 8 + 8 * n;
+export function spaceTagWidth(_tag) {
+  return SPACE_TAG_W;
 }
 
 /**

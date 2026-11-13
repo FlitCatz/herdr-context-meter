@@ -1,6 +1,6 @@
 import { Rounds } from "./rounds.js";
 import { readAll } from "./sources.js";
-import { formatReadingMeta, levelOf, percentText, thresholds, tooltip } from "./usage.js";
+import { levelOf, percentText, shortModel, thresholds, tooltip } from "./usage.js";
 
 /** @typedef {import("gpui-kit").Context} Context */
 /** @typedef {import("gpui-kit").Color} Color */
@@ -20,7 +20,7 @@ export const REFRESH_MS = 5000;
 export const ROUND_LIMIT_MS = 20000;
 export const STALE_MS = 3 * REFRESH_MS + ROUND_LIMIT_MS;
 
-export const BAR_W = 44;
+export const BAR_W = 36;
 export const BAR_H = 4;
 export const SUB_BAR_W = 24;
 export const SUB_TEXT_MIN_PX = 240;
@@ -154,24 +154,28 @@ export class Meter {
   }
 
   /**
-   * Second line under an expanded agent row.
+   * Second line under an expanded agent row: bar % · short model · elapsed.
+   * Token counts stay in the hover tooltip; at narrow widths (< SUB_TEXT_MIN_PX)
+   * the model is dropped before the elapsed time.
    * @param {Record<string, Color>} t
    * @param {import("herdr").AgentInfo} a
    * @param {number} indent left padding that lines the bar up under the agent name
    * @param {string | null} [elapsed]
+   * @param {number} [sidebarPx]
    */
-  rowLine(t, a, indent, elapsed = null) {
+  rowLine(t, a, indent, elapsed = null, sidebarPx = Infinity) {
     const { div } = this.deps.ui;
     const { ok } = this.inspect(a);
-    const meta = ok ? formatReadingMeta(ok.model, ok.used, ok.window) : null;
+    const model = ok ? shortModel(ok.model) : "";
+    const showModel = Boolean(model) && sidebarPx >= SUB_TEXT_MIN_PX;
     return this.reading(t, a, `ctx-${a.address}`, BAR_W)
       .pl(indent)
-      .when(Boolean(meta), (el) =>
-        el.child(div().flex_1().min_w(0).truncate().text_size(10).text_color(t.dim).child(meta)),
+      .when(showModel, (el) =>
+        el.child(div().flex_1().min_w(0).truncate().text_size(10).text_color(t.dim).child(`· ${model}`)),
       )
-      .when(!meta && Boolean(elapsed), (el) => el.child(div().flex_1()))
+      .when(!showModel && Boolean(elapsed), (el) => el.child(div().flex_1()))
       .when(Boolean(elapsed), (el) =>
-        el.child(div().flex_none().text_size(10).text_color(t.dim).child(elapsed)),
+        el.child(div().flex_none().text_size(10).text_color(t.dim).child(`· ${elapsed}`)),
       );
   }
 

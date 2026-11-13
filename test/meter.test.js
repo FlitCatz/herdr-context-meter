@@ -232,7 +232,7 @@ test("subReading: at the default 268 px sidebar the share shows; below 240 px on
   assert.match(String(tight.props.tooltip), /45%/);
 });
 
-test("rowLine: shows compact model + token counts when ok and elapsed time on the right", () => {
+test("rowLine: shows bar % · short model · elapsed (no token counts) and drops model before elapsed when narrow", () => {
   const now = 5000;
   const meter = makeMeter(() => now);
   meter.result = {
@@ -243,14 +243,22 @@ test("rowLine: shows compact model + token counts when ok and elapsed time on th
     ]),
   };
 
-  const okRow = meter.rowLine(THEME, makeAgent("t1"), 25, "12m");
+  const okRow = meter.rowLine(THEME, makeAgent("t1"), 66, "12m", 268);
+  assert.equal(okRow.props.pl, 66);
   assert.equal(okRow.children[1].children[0], "60%");
-  assert.equal(okRow.children[2].children[0], "opus-4-6 120k/200k");
-  assert.equal(okRow.children[3].children[0], "12m");
+  assert.equal(okRow.children[2].children[0], "· opus-4-6");
+  assert.equal(okRow.children[3].children[0], "· 12m");
+  assert.match(String(okRow.props.tooltip), /120,000 of 200,000 tokens/);
 
-  const naRow = meter.rowLine(THEME, makeAgent("t2"), 25, "<1m");
+  const narrowRow = meter.rowLine(THEME, makeAgent("t1"), 66, "12m", 200);
+  assert.equal(narrowRow.children[1].children[0], "60%");
+  assert.equal(narrowRow.children[2].kind, "div");
+  assert.equal(narrowRow.children[2].children.length, 0);
+  assert.equal(narrowRow.children[3].children[0], "· 12m");
+
+  const naRow = meter.rowLine(THEME, makeAgent("t2"), 66, "<1m", 268);
   assert.equal(naRow.children[1].children[0], "n/a");
   assert.equal(naRow.children[2].kind, "div");
   assert.equal(naRow.children[2].children.length, 0);
-  assert.equal(naRow.children[3].children[0], "<1m");
+  assert.equal(naRow.children[3].children[0], "· <1m");
 });

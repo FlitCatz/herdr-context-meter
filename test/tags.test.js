@@ -67,10 +67,10 @@ test("spaceTagText: handles empty, symbol, single-char, and Unicode names", () =
   assert.equal(spaceTagText("첫번째-작업", 2), "첫작");
 });
 
-test("spaceTagWidth: one letter matches the 18 px Spaces badge; longer tags are wider", () => {
-  assert.equal(spaceTagWidth("M"), 18);
-  assert.ok(spaceTagWidth("HC") > 18);
-  assert.ok(spaceTagWidth("HTN") > spaceTagWidth("HC"));
+test("spaceTagWidth: constant width across 1-, 2-, and 3-letter tags so rows align", () => {
+  assert.equal(spaceTagWidth("M"), 32);
+  assert.equal(spaceTagWidth("HC"), spaceTagWidth("M"));
+  assert.equal(spaceTagWidth("HTN"), spaceTagWidth("M"));
 });
 
 test("spaceColor: matches Spaces MARK palette, supports hex, and falls back to ansi6", () => {

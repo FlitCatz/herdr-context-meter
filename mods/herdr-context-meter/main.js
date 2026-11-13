@@ -491,7 +491,7 @@ export default class Agents extends View {
             .when(this.hovered === a.address, el => el.child(pin))
             .child(this.status(t, a, byPriority && !isPinned)),
         )
-        .child(this.meter.rowLine(t, a, nameIndent, when ? duration(now - when) : null));
+        .child(this.meter.rowLine(t, a, nameIndent, when ? duration(now - when) : null, sidebarPx));
     };
 
     // Groups in list order: spaces (grouped) or priority sections. Agents of a

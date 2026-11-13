@@ -1,12 +1,12 @@
 # herdr-context-meter
 
 A [Herdr](https://herdr.dev) mod that clones the shipped `agents` sidebar list and adds a second
-line under each agent row showing how full its context window is: a short bar, the share in use,
-a color, the model and compact token counts (e.g. `opus-4-6 90k/200k`), and the elapsed time on
-the right. In the Priority (and Pinned) sort, each row shows `[Space Tag][agent icon][agent name]`
-using the same colored badge as the Spaces list (more letters when space initials collide, full
-space name on hover) so the agent's own name stays in the primary slot. In the "Grouped by space"
-sort, rows already omit the space and get no tag. Sub-agent rows stay one
+line under each agent row showing how full its context window is: `bar % · short model · elapsed`
+(token counts stay in the hover tooltip, and at narrow widths under 240 px the model is dropped
+before the elapsed time). In the Priority (and Pinned) sort, each row shows `[Space Tag][agent icon][agent name]`
+using the same colored badge as the Spaces list in a fixed 3-letter-wide column (more letters when
+space initials collide, full space name on hover) so every row's icon, name, and second line align
+at one shared x. In the "Grouped by space" sort, rows already omit the space and get no tag. Sub-agent rows stay one
 line: a sub-agent with its own pane shows a shorter bar and its share on that line, before a
 compact status (`!` rather than "Needs you"); in a sidebar narrower than 240 px only the bar is
 left, with the share in its tooltip. A sub-agent without a pane has no reading. In the collapsed
@@ -15,12 +15,12 @@ status bar (`workspace-status`) is left unchanged.
 
 ```
 Needs you 1
-  [M] ▣ fix-login                !
-        ▬▬▬▬ 45% opus-4-6 90k/200k  5m
+  [ M ] ▣ fix-login                !
+          ▬▬▬▬ 45% · opus-4-6 · 5m
 Working 2
-  [M] ▣ Claude Code              ◐
-        ▬▬   18% opus-4-6 36k/200k <1m
-      └ ▣ sub-helper             ◐
+  [ M ] ▣ Claude Code              ◐
+          ▬▬   18% · opus-4-6 · <1m
+        └ ▣ sub-helper             ◐
 ```
 
 - The share and bar turn yellow (the theme's `working` color) from **40%** and red (the theme's
