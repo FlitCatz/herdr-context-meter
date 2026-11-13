@@ -35,7 +35,8 @@ Working 2
 |---|---|---|---|
 | Claude Code | `input + cache creation + cache read` tokens of the latest response (output not counted) | per-model table, below | Claude Code's status line (`used_percentage` is computed the same way) |
 | Codex | `last_token_usage.total_tokens` of the latest `token_count`, with Codex's 12,000-token baseline taken off both the usage and the window | `model_context_window` from the same record | Codex's `Context N% left` |
-| anything else (agy, pi, ...) | not read | | shown as `n/a`, hover says why |
+| Antigravity CLI (`agy`) | `input_tokens + cache_read_tokens` of the latest `PLANNER_RESPONSE` in `transcript.jsonl` | 1,048,576 for Gemini 4 models (other ids: 1,048,576, marked "window assumed"), `claudeWindow` for Claude models, `windows` prop override | `agy` status line (`Ctx: N%`) |
+| anything else (pi, ...) | not read | | shown as `n/a`, hover says why |
 
 An agent whose number cannot be read **always shows `n/a`** with the reason on hover; a stale or
 guessed number is never shown as current.
@@ -103,18 +104,25 @@ The mod asks Herdr for the agents (`agents()`), then for each local one runs `hc
   whose first line is not fully written yet, until a later round can read it. A resumed
   session has its old rollout open too; of the rest, the one with the newest `token_count` is
   used.
+- **Antigravity CLI (`agy`).** Active `agy` processes hold `conversations/<uuid>.db*` and
+  `brain/<uuid>` open under `~/.gemini/antigravity-cli/`, so the shared `ps` + `lsof` pass
+  extracts the session `<uuid>` and tails
+  `~/.gemini/antigravity-cli/brain/<uuid>/.system_generated/logs/transcript.jsonl` for the last
+  `PLANNER_RESPONSE` record. Since that record omits the model and window size, the model comes
+  from the process `--model` argument (falling back to `~/.gemini/antigravity-cli/settings.json`),
+  with Gemini 4 models using 1,048,576 tokens and Claude models reusing the Claude window table.
 
 Limits, all of which show `n/a` rather than a guess:
 
 - Terminals on another machine (`machine/t7`): their files are not here.
 - Claude without a session file (`~/.claude/sessions/<pid>.json`), as in an older Claude Code.
-- A Codex that does not have its rollout open, or a failed `ps` or `lsof`.
+- A Codex or `agy` process without an open session file (`rollout-*.jsonl` or `conversations/<uuid>.db*`/`brain/<uuid>`), such as a fresh `agy` terminal with no conversation yet, or a failed `ps` or `lsof`.
 - A Codex whose only open rollouts are sub-agents', or not fully started yet ("no main session
   file").
 - A new session that has not recorded a response yet.
 
-Both Claude's session file and Codex's open rollout are implementation details of those tools,
-not documented interfaces; if one changes, the entry reads `n/a` until the mod is updated.
+Claude's session file, Codex's open rollout and `agy`'s `transcript.jsonl` are implementation
+details of those tools, not documented interfaces; if one changes, the entry reads `n/a` until the mod is updated.
 
 The numbers are as of the last completed response: during a long tool run the entry shows the
 context of the response before it. After `/compact` it updates with the next response; after
@@ -124,7 +132,8 @@ context of the response before it. After `/compact` it updates with the next res
 
 Only the last part of each file is read, with `tail -c` (256 KiB, growing to 2 MiB only when no
 usage record is in it), never a whole transcript. From each line only token counts, the model
-id and the record's timestamp are taken. Of a Codex rollout, the first 4 KiB are also read, with
+id and the record's timestamp are taken (an `agy` model comes from its `--model` argument, or else
+the `model` field of `~/.gemini/antigravity-cli/settings.json`). Of a Codex rollout, the first 4 KiB are also read, with
 `head -c` (again each round only until its first line can be read), only to see whether its
 `session_meta` names a sub-agent; the text from `base_instructions` on is not looked at.
 Conversation text is not looked at, kept, logged or shown, and no reading is stored.
@@ -224,7 +233,7 @@ any annotation still missing.
 |---|---|---|
 | `warn` | `40` | Share (percent of the window) from which the entry is yellow. |
 | `critical` | `50` | Share from which it is red. A missing value, or one that is not a number above 0 and up to 100, falls back to its own default; if `warn` is then not below `critical`, both fall back to the defaults. |
-| `windows` | `{}` | Window per Claude model, in tokens: `{ "claude-opus-5": 500000 }`. A key is a model id or its start; the longest match wins and beats the built-in table. Setting a smaller window than the real one makes the shares reach the thresholds sooner. |
+| `windows` | `{}` | Window per Claude or `agy` model, in tokens: `{ "claude-opus-5": 500000 }`. A key is a model id or its start (an `agy` display name such as `Gemini 4 Argon (High)` is matched as `gemini-4-argon`); the longest match wins and beats the built-in table. Setting a smaller window than the real one makes the shares reach the thresholds sooner. |
 
 ## Develop
 

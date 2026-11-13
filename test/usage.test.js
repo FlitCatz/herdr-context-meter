@@ -2,8 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  CODEX_BASELINE_TOKENS, claudeReading, claudeWindow, codexReading, codexUsedPct, grouped, kindOf, levelOf,
-  parseClaudeTail, parseCodexTail, percentText, thresholds, tooltip,
+  AGY_GEMINI_WINDOW, CODEX_BASELINE_TOKENS, agyReading, agyWindow, claudeReading, claudeWindow, codexReading,
+  codexUsedPct, grouped, kindOf, levelOf, parseAgyTail, parseClaudeTail, parseCodexTail, percentText, thresholds,
+  tooltip,
 } from "../mods/herdr-context-meter/usage.js";
 
 const fixture = (/** @type {string} */ name) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
@@ -11,6 +12,7 @@ const fixture = (/** @type {string} */ name) => readFileSync(new URL(`./fixtures
 test("kindOf maps the app an agent reports", () => {
   assert.equal(kindOf("claude-code"), "claude");
   assert.equal(kindOf("codex"), "codex");
+  assert.equal(kindOf("antigravity"), "agy");
   assert.equal(kindOf("agy"), null);
   assert.equal(kindOf(null), null);
 });
@@ -153,5 +155,46 @@ test("tooltip: tab, model, counts; n/a says why; no conversation text", () => {
   const codex = tooltip("ci", "Codex", codexReading({ tokens: 120170, window: 258400, model: null }));
   assert.match(codex, /120,170 of 258,400 tokens \(44%\)/);
   assert.match(tooltip("x", "Codex", { state: "na", reason: "session file not found" }), /Context: n\/a \(session file not found\)/);
+  const agy = agyReading({ input: 3893, cacheRead: 117862, output: 1933 }, "gemini-4-hydrogen-medium");
+  const agyTip = tooltip("agy-tab", "Antigravity", agy);
+  assert.match(agyTip, /^agy-tab · Antigravity\n/);
+  assert.match(agyTip, /gemini-4-hydrogen-medium/);
+  assert.match(agyTip, /121,755 of 1,048,576 tokens \(12%\)/);
+  assert.match(agyTip, /input 3,893 · cache read 117,862/);
   assert.equal(grouped(1234567), "1,234,567");
+});
+
+test("Agy tail: picks last valid PLANNER_RESPONSE, ignores zeroed/partial lines, never returns text", () => {
+  const text = fixture("agy-transcript.jsonl");
+  const rec = parseAgyTail(text);
+  assert.deepEqual(rec, {
+    input: 3893,
+    cacheRead: 117862,
+    output: 1933,
+    at: Date.parse("2026-11-13T03:00:00.000Z"),
+  });
+  assert.ok(!JSON.stringify(agyReading(rec, "gemini-4-hydrogen-medium")).includes("SECRET"));
+  const cut = text.slice(text.indexOf("\n") + 15);
+  assert.equal(parseAgyTail(cut)?.cacheRead, 117862);
+  assert.equal(parseAgyTail(""), null);
+  assert.equal(parseAgyTail('{"type":"USER_INPUT"}\nnot json "PLANNER_RESPONSE"\n'), null);
+});
+
+test("Agy windows and reading: Gemini 4 1MiB, Claude reuse, and windows override", () => {
+  assert.deepEqual(agyWindow("gemini-4-hydrogen-medium"), { tokens: AGY_GEMINI_WINDOW, assumed: false });
+  assert.deepEqual(agyWindow("Gemini 4 Hydrogen (Medium)"), { tokens: AGY_GEMINI_WINDOW, assumed: false });
+  assert.deepEqual(agyWindow("claude-opus-5-5-high"), { tokens: 1000000, assumed: false });
+  assert.deepEqual(agyWindow("Claude Opus 4.6 (High)"), { tokens: 200000, assumed: false });
+  assert.deepEqual(agyWindow(null), { tokens: AGY_GEMINI_WINDOW, assumed: true });
+  assert.deepEqual(agyWindow("gemini-4-hydrogen-medium", { "gemini-4": 500000, "gemini-4-hydrogen": 750000 }), { tokens: 750000, assumed: false });
+  assert.deepEqual(agyWindow("Gemini 4 Argon (High)", { "gemini-4-argon": 2000000 }), { tokens: 2000000, assumed: false });
+  assert.deepEqual(agyWindow("Claude Opus 4.6 (High)", { "claude-opus-4-6": 300000 }), { tokens: 300000, assumed: false });
+  assert.deepEqual(agyWindow("orchestrator"), { tokens: AGY_GEMINI_WINDOW, assumed: true });
+  assert.deepEqual(agyWindow("gemini-3.8-flash-low"), { tokens: AGY_GEMINI_WINDOW, assumed: true });
+
+  const r = agyReading({ input: 3893, cacheRead: 117862, output: 1933 }, "gemini-4-hydrogen-medium");
+  assert.equal(r.kind, "agy");
+  assert.equal(r.used, 121755);
+  assert.equal(r.window, 1048576);
+  assert.equal(Math.round(r.pct), 12);
 });
