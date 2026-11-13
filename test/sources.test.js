@@ -465,3 +465,17 @@ test("Agy: a missing transcript is no usage yet, and does not hide another open 
   const e2 = entries.get("t2");
   assert.equal(e2?.state === "ok" && e2.used, 121755);
 });
+
+test("Agy: a timed-out transcript read says so instead of no usage yet", async () => {
+  const id = "c4e79c68-1f64-4464-80bf-592d8f51aa9f";
+  const transcript = `${HOME}/.gemini/antigravity-cli/brain/${id}/.system_generated/logs/transcript.jsonl`;
+  const host = fakeHost({
+    hc: { t1: terminal(101, ["agy", "--model", "gemini-4-hydrogen-medium"]) },
+    ps: "101 1\n",
+    lsof: `p101\nn${HOME}/.gemini/antigravity-cli/brain/${id}`,
+    files: { [transcript]: AGY },
+    execFails: (command) => (command === PROGRAMS.tail ? new Error("timed out") : null),
+  });
+  const entries = await readAll(host, [agyAgent("t1")], ctx());
+  assert.deepEqual(entries.get("t1"), { state: "na", reason: "read timed out", kind: "agy" });
+});

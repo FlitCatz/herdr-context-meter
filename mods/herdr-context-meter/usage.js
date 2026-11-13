@@ -241,7 +241,7 @@ export function agyWindow(model, overrides = {}) {
   if (id.startsWith("claude-")) return claudeWindow(id.replace(/\./g, "-"), overrides);
   const hit = windowOverride(id, overrides);
   if (hit !== null) return { tokens: hit, assumed: false };
-  return { tokens: AGY_GEMINI_WINDOW, assumed: !id.startsWith("gemini-") };
+  return { tokens: AGY_GEMINI_WINDOW, assumed: !id.startsWith("gemini-4-") };
 }
 
 /**

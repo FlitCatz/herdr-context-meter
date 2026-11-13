@@ -190,6 +190,7 @@ test("Agy windows and reading: Gemini 4 1MiB, Claude reuse, and windows override
   assert.deepEqual(agyWindow("Gemini 4 Argon (High)", { "gemini-4-argon": 2000000 }), { tokens: 2000000, assumed: false });
   assert.deepEqual(agyWindow("Claude Opus 4.6 (High)", { "claude-opus-4-6": 300000 }), { tokens: 300000, assumed: false });
   assert.deepEqual(agyWindow("orchestrator"), { tokens: AGY_GEMINI_WINDOW, assumed: true });
+  assert.deepEqual(agyWindow("gemini-3.8-flash-low"), { tokens: AGY_GEMINI_WINDOW, assumed: true });
 
   const r = agyReading({ input: 3893, cacheRead: 117862, output: 1933 }, "gemini-4-hydrogen-medium");
   assert.equal(r.kind, "agy");

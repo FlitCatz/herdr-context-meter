@@ -307,7 +307,10 @@ async function readAgy(host, open, model, ctx) {
   const uuids = agyUuidsFromFiles(open);
   if (uuids.length === 0) return missing("session file not found", "agy");
   const paths = uuids.map((id) => `${host.home}/.gemini/antigravity-cli/brain/${id}/.system_generated/logs/transcript.jsonl`);
-  const recs = await Promise.all(paths.map((path) => tailParse(host, path, parseAgyTail).catch(none)));
+  const recs = await Promise.all(paths.map((path) => tailParse(host, path, parseAgyTail).catch(/** @returns {null} */ (err) => {
+    if (err?.message !== "unreadable") throw err;
+    return null;
+  })));
   const latest = recs.filter((r) => r !== null).sort((a, b) => b.at - a.at)[0];
   return latest ? agyReading(latest, model, ctx.windows) : missing("no usage recorded yet", "agy");
 }
