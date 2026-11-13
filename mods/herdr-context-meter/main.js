@@ -72,11 +72,11 @@ const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
 // blocked. It's never done: it reports to its parent, and the parent's done is the news.
 /**
  * @param {any} k
- * @param {Map<string, string>} listed
+ * @param {Map<string, AgentInfo>} listed
  * @returns {string}
  */
 const kidStatus = (k, listed) => {
-  const s = listed.get(k.address) ?? k.status;
+  const s = listed.get(k.address)?.status ?? k.status;
   return s === "error" ? "blocked" : s === "done" ? "idle" : s;
 };
 const SORTS = [
@@ -250,6 +250,7 @@ export default class Agents extends View {
     const st = kidStatus(k, this.listed);
     const pic = icon(k.program, 14, t.foreground);
     const on = k.address === shown;
+    const kept = this.listed.get(k.address);
     return h_flex()
       .id(`sub-${k.address}`)
       .pl(39)
@@ -262,12 +263,13 @@ export default class Agents extends View {
       .text_size(12.5)
       .when(on, (el) => el.bg(t.raised))
       .hover((s) => s.bg(t.hover))
-      .on_click(() => (this.listed.has(k.address) ? run("pane.focus", { terminal: k.address }) : this.peek(k.address)))
+      .on_click(() => (kept ? run("pane.focus", { terminal: k.address }) : this.peek(k.address)))
       .children(s.lines.map(l => div().self_start().mt(-4).w(9).h(17).mr(4).flex_none()
         .when(Boolean(l), el => el.border_l(1.5).border_color(t.input))
         .when(l === "└" || l === "├", el => el.border_b(1.5).rounded_bl(6))))
       .when(Boolean(pic), el => el.child(div().mr(8).child(pic)))
       .child(div().flex_1().truncate().text_color(on ? t.foreground : t.muted).child(k.name || k.template || k.program?.name || k.address))
+      .when(Boolean(kept), (el) => el.child(this.meter.subReading(t, kept)))
       .child(this.status(t, { status: st }, compact));
   }
 
@@ -294,7 +296,7 @@ export default class Agents extends View {
     const collapsed = narrow();
     const sort = sortOf();
     let list = agents();
-    this.listed = new Map(list.map((a) => [a.address, a.status]));
+    this.listed = new Map(list.map((a) => [a.address, a]));
     const all = terminals();
     this.migratePins(all);
     const shown = focused()?.agent;

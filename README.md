@@ -2,7 +2,8 @@
 
 A [Herdr](https://herdr.dev) mod that clones the shipped `agents` sidebar list and adds a second
 line under each agent row showing how full its context window is: a short bar, the share in use,
-and a color. Sub-agent rows stay one line. In the collapsed narrow sidebar rail, each agent row
+and a color. Sub-agent rows stay one line: a sub-agent with its own pane shows a shorter bar and
+its share on that line, before its status; one without a pane has no reading. In the collapsed narrow sidebar rail, each agent row
 shows a thin 2 px bar underneath its index and status. The bottom status bar (`workspace-status`)
 is left unchanged.
 
@@ -120,9 +121,13 @@ usage record is in it), never a whole transcript. From each line only token coun
 id and the record's timestamp are taken. Of a Codex rollout, the first 4 KiB are also read, with
 `head -c` (again each round only until its first line can be read), only to see whether its
 `session_meta` names a sub-agent; the text from `base_instructions` on is not looked at.
-Conversation text is not looked at, kept, logged or shown, and nothing is stored.
+Conversation text is not looked at, kept, logged or shown, and no reading is stored.
 
-The mod does not mutate Herdr's layout or state files. Everything runs through Herdr's `exec`,
+The context reading (`meter.js`, `sources.js`) writes nothing. The agents list it is cloned from
+keeps its own behavior, which does write: the sidebar width (`layout.resize`, and
+`sidebar.width`/`sidebar.collapsed` in `shared.json`), the sort choice (`agents.sort`), the agent
+order (`setAgentOrder`), pins (`terminal.pin`), and each agent's last state change and pending pins
+in this mod's own `localStorage` (`changed`, `pins`). Everything the reading runs goes through Herdr's `exec`,
 `hc` and `readTextFile`, by absolute program path (`/usr/bin/tail`, `/usr/bin/head`,
 `/usr/bin/find`, `/bin/ps`, `/usr/sbin/lsof`: macOS locations, listed in `PROGRAMS` in `sources.js`
 for other systems), so nothing depends on the `PATH` or folder Herdr was started from.
@@ -172,22 +177,34 @@ last successful read is older than 35 seconds turns to `n/a` instead of showing 
 
 Herdr overwrites its shipped `~/.config/herdr-app/mods/agents/main.js` on every app start, while
 cloned mods stay untouched. `mod.json` records `cloned_from` (`agents` `0.1.15`). To keep re-syncing
-simple, all meter polling and rendering live in `meter.js`, and `main.js` differs from the shipped
-`agents/main.js` in only 5 places:
+simple, all meter polling and rendering live in `meter.js`. `main.js` differs from the shipped
+`agents/main.js` in two kinds of change.
 
-1. **Imports & JSDoc typedefs** at the top of the file (`import { Meter } from "./meter.js";` plus
-   `exec`, `hc`, `home`, `readTextFile` from `"herdr"`, and JSDoc annotations for `checkJs`).
+The behavior hunks:
+
+1. **Imports:** `import { Meter } from "./meter.js";`, plus `exec`, `hc`, `home`, `readTextFile`
+   from `"herdr"`.
 2. **`init(_props, cx)`:** instantiates `this.meter = new Meter(cx, { ui: { div, h_flex }, host: { exec, hc, readTextFile, home: home() }, agents, props })`.
-3. **`row(a, i, subs)` — collapsed branch:** wraps the index + status `h_flex()` in a `v_flex()`
+3. **`render()` — `this.listed`:** maps each address to its `AgentInfo` instead of its status, and
+   `kidStatus` reads `listed.get(k.address)?.status`.
+4. **`subRow`:** `const kept = this.listed.get(k.address)`; the click tests `kept`, and
+   `.when(Boolean(kept), (el) => el.child(this.meter.subReading(t, kept)))` goes before the status.
+5. **`row(a, i, subs)` — collapsed branch:** wraps the index + status `h_flex()` in a `v_flex()`
    (`h(30)`, `gap(3)`) with `.child(this.meter.railBar(t, a))` underneath.
-4. **`row(a, i, subs)` — expanded branch:** wraps the row `h_flex()` in a `v_flex()` (`py(5)`,
-   `gap(3)`) with `.child(this.meter.rowLine(t, a, Boolean(pic)))` underneath. `subRow` stays 1 line.
-5. **`render()` — `ag-sort` button:** `openOverlay({ mod: "herdr-context-meter", ... })` instead of
+6. **`row(a, i, subs)` — expanded branch:** wraps the row `h_flex()` in a `v_flex()` (`py(5)`,
+   `gap(3)`) with `.child(this.meter.rowLine(t, a, Boolean(pic)))` underneath.
+7. **`render()` — `ag-sort` button:** `openOverlay({ mod: "herdr-context-meter", ... })` instead of
    `mod: "agents"`.
 
-When Herdr updates `agents/main.js`, copy the new `agents/main.js` over
-`mods/herdr-context-meter/main.js`, re-apply those 5 hunks, update `cloned_from.version` in
-`mod.json`, and run `npm test && npm run check`.
+The type annotations for `checkJs`, spread through the file: the `@typedef` imports at the top,
+JSDoc `@param`/`@returns`/`@type` on functions, closures and fields, `this.hovered = null` in
+`init`, `/** @type {Color} */` casts on the template-literal colors in `status()`, `render(_cx)`
+with a cast `theme()`, and typed `reduce` accumulators.
+
+When Herdr updates `agents/main.js`, diff the old and new shipped files and apply that diff to
+`mods/herdr-context-meter/main.js` (or copy the new file over and re-apply both kinds of change),
+update `cloned_from.version` in `mod.json`, and run `npm test && npm run check`; `tsc` points at
+any annotation still missing.
 
 ### Props
 

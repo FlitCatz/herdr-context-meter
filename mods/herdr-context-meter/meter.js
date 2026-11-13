@@ -22,6 +22,7 @@ export const STALE_MS = 3 * REFRESH_MS + ROUND_LIMIT_MS;
 
 export const BAR_W = 56;
 export const BAR_H = 4;
+export const SUB_BAR_W = 24;
 
 export class Meter {
   /**
@@ -107,23 +108,23 @@ export class Meter {
   }
 
   /**
-   * Second line under an expanded agent row: a small bar and the percentage.
+   * A small bar and the percentage, with the reading's details as a tooltip.
    * @param {Record<string, Color>} t
    * @param {import("herdr").AgentInfo} a
-   * @param {boolean} hasIcon
+   * @param {string} id
+   * @param {number} barW
    */
-  rowLine(t, a, hasIcon) {
+  reading(t, a, id, barW) {
     const { div, h_flex } = this.deps.ui;
     const { ok, level, text, hint } = this.inspect(a);
     return h_flex()
-      .id(`ctx-${a.address}`)
-      .pl(hasIcon ? 25 : 0)
+      .id(id)
       .gap(6)
       .items_center()
       .tooltip(hint)
       .child(
         div()
-          .w(BAR_W)
+          .w(barW)
           .h(BAR_H)
           .flex_none()
           .rounded(BAR_H / 2)
@@ -145,6 +146,25 @@ export class Meter {
           .text_color(ok ? this.color(t, level) : t.dim)
           .child(text),
       );
+  }
+
+  /**
+   * Second line under an expanded agent row.
+   * @param {Record<string, Color>} t
+   * @param {import("herdr").AgentInfo} a
+   * @param {boolean} hasIcon
+   */
+  rowLine(t, a, hasIcon) {
+    return this.reading(t, a, `ctx-${a.address}`, BAR_W).pl(hasIcon ? 25 : 0);
+  }
+
+  /**
+   * On the same line as a kept sub-agent's row, so sub-agent rows stay one line.
+   * @param {Record<string, Color>} t
+   * @param {import("herdr").AgentInfo} a
+   */
+  subReading(t, a) {
+    return this.reading(t, a, `ctx-sub-${a.address}`, SUB_BAR_W).flex_none().mx(6);
   }
 
   /**

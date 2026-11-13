@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BAR_H, BAR_W, Meter, STALE_MS } from "../mods/herdr-context-meter/meter.js";
+import { BAR_H, BAR_W, Meter, STALE_MS, SUB_BAR_W } from "../mods/herdr-context-meter/meter.js";
 
 /** Tiny fluent element stub recording gpui-kit builder calls for assertions. */
 function elStub(kind) {
@@ -175,4 +175,39 @@ test("railBar: enforces minimum visible 4% fill for 0-3% readings and respects c
   assert.equal(meter.railBar(THEME, makeAgent("t1")).children[0].props.bg, THEME.muted);
   assert.equal(meter.railBar(THEME, makeAgent("t2")).children[0].props.bg, THEME.working);
   assert.equal(meter.railBar(THEME, makeAgent("t3")).children[0].props.bg, THEME.blocked);
+});
+
+test("subReading: a kept sub-agent's reading stays on one line, shorter than the row line, same colors and n/a rule", () => {
+  let now = 2000;
+  const meter = makeMeter(() => now);
+  meter.result = {
+    at: now,
+    entries: new Map([
+      ["k1", okEntry(52)],
+      ["k2", { state: "na", reason: "no main session file" }],
+    ]),
+  };
+
+  const crit = meter.subReading(THEME, makeAgent("k1"));
+  assert.equal(crit.kind, "h_flex");
+  assert.notEqual(crit.props.id, meter.rowLine(THEME, makeAgent("k1"), true).props.id);
+  assert.ok("flex_none" in crit.props);
+  assert.equal(crit.props.pl, undefined);
+  assert.ok(SUB_BAR_W < BAR_W);
+  assert.equal(crit.children[0].props.w, SUB_BAR_W);
+  assert.equal(crit.children[0].props.h, BAR_H);
+  assert.equal(crit.children[0].children[0].props.w, "52%");
+  assert.equal(crit.children[0].children[0].props.bg, THEME.blocked);
+  assert.equal(crit.children[1].children[0], "52%");
+  assert.equal(crit.children[1].props.text_color, THEME.blocked);
+
+  const na = meter.subReading(THEME, makeAgent("k2"));
+  assert.equal(na.children[0].children.length, 0);
+  assert.equal(na.children[1].children[0], "n/a");
+  assert.equal(na.children[1].props.text_color, THEME.dim);
+  assert.match(String(na.props.tooltip), /no main session file/);
+
+  now += STALE_MS;
+  const stale = meter.subReading(THEME, makeAgent("k1"));
+  assert.equal(stale.children[1].children[0], "n/a");
 });
