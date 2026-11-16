@@ -4,7 +4,7 @@ A [Herdr](https://herdr.dev) mod that clones the shipped `agents` sidebar list a
 line under each agent row showing how full its context window is: `bar % · short model · elapsed`
 (token counts stay in the hover tooltip, and at narrow widths under 240 px the model is dropped
 before the elapsed time). In the Priority (and Pinned) sort, each row shows `[Space Tag][agent icon][agent name]`
-using the same colored badge as the Spaces list in a fixed 3-letter-wide column (more letters when
+using the same 18×18 colored badge as the Spaces list (more letters when
 space initials collide, full space name on hover) so every row's icon, name, and second line align
 at one shared x. In the "Grouped by space" sort, rows already omit the space and get no tag. Sub-agent rows stay one
 line: a sub-agent with its own pane shows a shorter bar and its share on that line, before a
@@ -15,12 +15,12 @@ status bar (`workspace-status`) is left unchanged.
 
 ```
 Needs you 1
-  [ M ] ▣ fix-login                !
-          ▬▬▬▬ 45% · opus-4-6 · 5m
+  [M] ▣ fix-login                !
+        ▬▬▬▬ 45% · opus-4-6 · 5m
 Working 2
-  [ M ] ▣ Claude Code              ◐
-          ▬▬   18% · opus-4-6 · <1m
-        └ ▣ sub-helper             ◐
+  [M] ▣ Claude Code              ◐
+        ▬▬   18% · opus-4-6 · <1m
+      └ ▣ sub-helper             ◐
 ```
 
 - The share and bar turn yellow (the theme's `working` color) from **40%** and red (the theme's
@@ -199,7 +199,7 @@ simple, all meter polling/rendering lives in `meter.js` and space-tag/label help
 
 The behavior hunks:
 
-1. **Imports:** `import { Meter } from "./meter.js";` and `import { agentRowName, SPACE_TAG_W, spaceColor, spaceTags } from "./tags.js";`,
+1. **Imports:** `import { Meter } from "./meter.js";` and `import { agentRowName, SPACE_TAG_FONT_SIZE, SPACE_TAG_GAP, SPACE_TAG_H, SPACE_TAG_RADIUS, SPACE_TAG_W, spaceColor, spaceTags } from "./tags.js";`,
    plus `checking`, `exec`, `hc`, `home`, `readTextFile` from `"herdr"`.
 2. **`init(_props, cx)`:** instantiates `this.meter = new Meter(checking() ? null : cx, { ui: { div, h_flex }, host: { exec, hc, readTextFile, home: home() }, agents, props })`;
    a `null` `cx` keeps the meter from polling (exec, file reads) while `herdr-app check` runs `init()`.

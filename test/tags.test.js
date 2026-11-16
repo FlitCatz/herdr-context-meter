@@ -1,6 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agentRowName, SPACE_TAG_W, spaceColor, spaceTagText, spaceTags } from "../mods/herdr-context-meter/tags.js";
+import {
+  agentRowName,
+  SPACE_TAG_FONT_SIZE,
+  SPACE_TAG_GAP,
+  SPACE_TAG_H,
+  SPACE_TAG_PADDING,
+  SPACE_TAG_RADIUS,
+  SPACE_TAG_W,
+  spaceColor,
+  spaceTagText,
+  spaceTags,
+} from "../mods/herdr-context-meter/tags.js";
 import { shortModel } from "../mods/herdr-context-meter/usage.js";
 
 test("spaceTags: unique initials use one letter; collisions use two letters deterministically", () => {
@@ -67,8 +78,13 @@ test("spaceTagText: handles empty, symbol, single-char, and Unicode names", () =
   assert.equal(spaceTagText("첫번째-작업", 2), "첫작");
 });
 
-test("SPACE_TAG_W: fixed badge column fits a 3-letter tag (8px padding + 8px per letter)", () => {
-  assert.equal(SPACE_TAG_W, 32);
+test("space tag dimensions match the shipped Spaces list badge (18x18, r5, 10.5px, 0 padding, 9px gap)", () => {
+  assert.equal(SPACE_TAG_W, 18);
+  assert.equal(SPACE_TAG_H, 18);
+  assert.equal(SPACE_TAG_RADIUS, 5);
+  assert.equal(SPACE_TAG_FONT_SIZE, 10.5);
+  assert.equal(SPACE_TAG_PADDING, 0);
+  assert.equal(SPACE_TAG_GAP, 9);
 });
 
 test("spaceColor: matches Spaces MARK palette, supports hex, and falls back to ansi6", () => {

@@ -26,8 +26,13 @@ export function spaceColor(spaceId, colors, t) {
 }
 
 export const SPACE_TAG_MAX = 3;
-/** Fixed badge column width, sized for SPACE_TAG_MAX letters so every row aligns at one x. */
-export const SPACE_TAG_W = 8 + 8 * SPACE_TAG_MAX;
+// Matches the shipped `spaces` mod's space badge (`size(18)`, `rounded(5)`, `text_size(10.5)`, `gap(9)`, no padding).
+export const SPACE_TAG_W = 18;
+export const SPACE_TAG_H = 18;
+export const SPACE_TAG_RADIUS = 5;
+export const SPACE_TAG_FONT_SIZE = 10.5;
+export const SPACE_TAG_PADDING = 0;
+export const SPACE_TAG_GAP = 9;
 
 /**
  * Tag text of `length` characters for a space name. Length 1 is exactly the Spaces
