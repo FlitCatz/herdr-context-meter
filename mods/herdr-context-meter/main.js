@@ -4,7 +4,7 @@ import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, checking, exec, hc, home, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, readTextFile, window, layout } from "herdr";
 import { Meter } from "./meter.js";
-import { agentRowName, SPACE_TAG_FONT_SIZE, SPACE_TAG_GAP, SPACE_TAG_H, SPACE_TAG_RADIUS, SPACE_TAG_W, spaceColor, spaceTags } from "./tags.js";
+import { agentRowName, SPACE_TAG_FONT_SIZE, SPACE_TAG_GAP, SPACE_TAG_H, SPACE_TAG_RADIUS, SPACE_TAG_W, spaceColor, spaceTagText } from "./tags.js";
 
 /** @typedef {import("gpui-kit").Color} Color */
 /** @typedef {import("gpui-kit").Context} Context */
@@ -389,7 +389,6 @@ export default class Agents extends View {
     for (const a of list) {
       if (detail.get(a.address) == null && seen[`${a.space_name}\u0000`] > 1) detail.set(a.address, label(a));
     }
-    const tags = spaceTags(list);
     const spaceColors = /** @type {Record<string, string>} */ (shared("space.colors") ?? {});
 
     /**
@@ -445,7 +444,7 @@ export default class Agents extends View {
       // Without a space header above (priority, pinned) the row shows the space as a colored tag.
       const full = byPriority || isPinned;
       const showTag = full && Boolean(a.space_name);
-      const tag = showTag ? (tags.get(a.space) ?? "?") : "";
+      const tag = showTag ? spaceTagText(a.space_name) : "";
       const agentName = agentRowName(a, more, label(a));
       const nameIndent = (showTag ? SPACE_TAG_W + SPACE_TAG_GAP : 0) + (pic ? 25 : 0);
       return v_flex()
@@ -479,7 +478,7 @@ export default class Agents extends View {
                   .bg(spaceColor(a.space, spaceColors, t))
                   .items_center()
                   .justify_center()
-                  .text_size(tag.length > 1 ? 9.5 : SPACE_TAG_FONT_SIZE)
+                  .text_size(SPACE_TAG_FONT_SIZE)
                   .font_bold()
                   .text_color("#ffffff")
                   .tooltip(a.space_name)

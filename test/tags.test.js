@@ -5,85 +5,34 @@ import {
   SPACE_TAG_FONT_SIZE,
   SPACE_TAG_GAP,
   SPACE_TAG_H,
-  SPACE_TAG_PADDING,
   SPACE_TAG_RADIUS,
   SPACE_TAG_W,
   spaceColor,
   spaceTagText,
-  spaceTags,
 } from "../mods/herdr-context-meter/tags.js";
 import { shortModel } from "../mods/herdr-context-meter/usage.js";
 
-test("spaceTags: unique initials use one letter; collisions use two letters deterministically", () => {
-  const tags = spaceTags([
-    { space: "s1", space_name: "proj-firstmate" },
-    { space: "s2", space_name: "herdr-context-meter" },
-    { space: "s3", space_name: "herdr-firstmate" },
-    { space: "s4", space_name: "tjerps" },
-    { space: "s5", space_name: "Tjerps-tutorial" },
-    { space: "s6", space_name: "mail-server" },
-  ]);
-
-  assert.equal(tags.get("s1"), "P");
-  assert.equal(tags.get("s2"), "HC");
-  assert.equal(tags.get("s3"), "HF");
-  assert.equal(tags.get("s4"), "TJ");
-  assert.equal(tags.get("s5"), "TT");
-  assert.equal(tags.get("s6"), "M");
+test("spaceTagText: is the Spaces badge letter (raw first character, uppercased), even when initials collide", () => {
+  assert.equal(spaceTagText("mail-server"), "M");
+  assert.equal(spaceTagText("herdr-context-meter"), "H");
+  assert.equal(spaceTagText("herdr-firstmate"), "H");
+  assert.equal(spaceTagText(".dotfiles"), ".");
+  assert.equal(spaceTagText("_scratch"), "_");
+  assert.equal(spaceTagText("첫번째-작업"), "첫");
+  assert.equal(spaceTagText("😀-emoji"), "😀");
 });
 
-test("spaceTags: two-letter tags that still collide get a third letter", () => {
-  const tags = spaceTags([
-    { space: "s1", space_name: "herdr-tab-namer" },
-    { space: "s2", space_name: "herdr-token-viewer" },
-    { space: "s3", space_name: "herdr-context-meter" },
-    { space: "s4", space_name: "herdr-tab" },
-  ]);
-
-  assert.equal(tags.get("s1"), "HTN");
-  assert.equal(tags.get("s2"), "HTV");
-  assert.equal(tags.get("s3"), "HC");
-  assert.equal(tags.get("s4"), "HTA");
+test("spaceTagText: empty or missing names fall back to ?", () => {
+  assert.equal(spaceTagText(""), "?");
+  assert.equal(spaceTagText(null), "?");
+  assert.equal(spaceTagText(undefined), "?");
 });
 
-test("spaceTags: without a collision the tag is the Spaces badge letter (raw first character)", () => {
-  const tags = spaceTags([
-    { space: "s1", space_name: ".dotfiles" },
-    { space: "s2", space_name: "_scratch" },
-    { space: "s3", space_name: "mail-server" },
-  ]);
-
-  assert.equal(tags.get("s1"), ".");
-  assert.equal(tags.get("s2"), "_");
-  assert.equal(tags.get("s3"), "M");
-});
-
-test("spaceTags: multiple agents in the same space do not collide with themselves", () => {
-  const tags = spaceTags([
-    { space: "s1", space_name: "herdr-context-meter" },
-    { space: "s1", space_name: "herdr-context-meter" },
-    { space: "s2", space_name: "policy-kernel" },
-  ]);
-
-  assert.equal(tags.get("s1"), "H");
-  assert.equal(tags.get("s2"), "P");
-});
-
-test("spaceTagText: handles empty, symbol, single-char, and Unicode names", () => {
-  assert.equal(spaceTagText("", 1), "?");
-  assert.equal(spaceTagText(null, 2), "?");
-  assert.equal(spaceTagText("~", 2), "~");
-  assert.equal(spaceTagText("a", 2), "A");
-  assert.equal(spaceTagText("첫째", 2), "첫째");
-  assert.equal(spaceTagText("첫번째-작업", 2), "첫작");
-});
-
-test("space tag dimensions match the shipped Spaces list badge (18x18, r5, 10.5px, 0 padding, 9px gap)", () => {
+test("space tag dimensions match the shipped Spaces list badge (18x18, r5, 10.5px, 9px gap)", () => {
   assert.equal(SPACE_TAG_W, 18);
   assert.equal(SPACE_TAG_H, 18);
   assert.equal(SPACE_TAG_RADIUS, 5);
   assert.equal(SPACE_TAG_FONT_SIZE, 10.5);
-  assert.equal(SPACE_TAG_PADDING, 0);
   assert.equal(SPACE_TAG_GAP, 9);
 });
 

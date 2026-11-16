@@ -4,8 +4,8 @@ A [Herdr](https://herdr.dev) mod that clones the shipped `agents` sidebar list a
 line under each agent row showing how full its context window is: `bar % · short model · elapsed`
 (token counts stay in the hover tooltip, and at narrow widths under 240 px the model is dropped
 before the elapsed time). In the Priority (and Pinned) sort, each row shows `[Space Tag][agent icon][agent name]`
-using the same 18×18 colored badge as the Spaces list (more letters when
-space initials collide, full space name on hover) so every row's icon, name, and second line align
+using the same 18×18 colored badge and letter as the Spaces list (spaces sharing an initial differ by
+color, full space name on hover) so every row's icon, name, and second line align
 at one shared x. In the "Grouped by space" sort, rows already omit the space and get no tag. Sub-agent rows stay one
 line: a sub-agent with its own pane shows a shorter bar and its share on that line, before a
 compact status (`!` rather than "Needs you"); in a sidebar narrower than 240 px only the bar is
@@ -199,12 +199,12 @@ simple, all meter polling/rendering lives in `meter.js` and space-tag/label help
 
 The behavior hunks:
 
-1. **Imports:** `import { Meter } from "./meter.js";` and `import { agentRowName, SPACE_TAG_FONT_SIZE, SPACE_TAG_GAP, SPACE_TAG_H, SPACE_TAG_RADIUS, SPACE_TAG_W, spaceColor, spaceTags } from "./tags.js";`,
+1. **Imports:** `import { Meter } from "./meter.js";` and `import { agentRowName, SPACE_TAG_FONT_SIZE, SPACE_TAG_GAP, SPACE_TAG_H, SPACE_TAG_RADIUS, SPACE_TAG_W, spaceColor, spaceTagText } from "./tags.js";`,
    plus `checking`, `exec`, `hc`, `home`, `readTextFile` from `"herdr"`.
 2. **`init(_props, cx)`:** instantiates `this.meter = new Meter(checking() ? null : cx, { ui: { div, h_flex }, host: { exec, hc, readTextFile, home: home() }, agents, props })`;
    a `null` `cx` keeps the meter from polling (exec, file reads) while `herdr-app check` runs `init()`.
 3. **`render()` — `this.listed` & tags:** maps each address to its `AgentInfo` instead of its status
-   (`kidStatus` reads `listed.get(k.address)?.status`), and computes `tags = spaceTags(list)` and
+   (`kidStatus` reads `listed.get(k.address)?.status`), and computes
    `spaceColors = shared("space.colors") ?? {}`.
 4. **`subRow(t, s, shown, compact, sidebarPx)`:** `const kept = this.listed.get(k.address)`; the
    click tests `kept`, `.when(Boolean(kept), (el) => el.child(this.meter.subReading(t, kept, sidebarPx)))`
@@ -213,7 +213,7 @@ The behavior hunks:
 5. **`row(a, i, subs)` — collapsed branch:** wraps the index + status `h_flex()` in a `v_flex()`
    (`h(30)`, `justify_center()`, `gap(3)`) with `.child(this.meter.railBar(t, a))` underneath.
 6. **`row(a, i, subs)` — expanded branch:** in Priority/Pinned rows (`byPriority || isPinned`),
-   prepends the colored space-tag badge (`spaceColor` + `tags.get(a.space)`), puts `agentRowName`
+   prepends the colored space-tag badge (`spaceColor` + `spaceTagText(a.space_name)`), puts `agentRowName`
    in the primary slot, and attaches `tooltip(a.space_name)` to the badge; moves elapsed time
    (`when ? duration(now - when) : null`) off the first line into `this.meter.rowLine(t, a, nameIndent, ...)`
    underneath inside a `v_flex()` (`py(5)`, `gap(3)`).

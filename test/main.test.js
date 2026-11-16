@@ -131,7 +131,7 @@ test("render draws Priority space tag at exact Spaces dimensions (18x18, r5, 10.
   /** @type {any} */ (globalThis).__herdrMock = {
     theme: () => ({ chrome: "#111", border: "#222", dim: "#666", foreground: "#eee", muted: "#999", selected: "#333", hover: "#222", working: "#eb0", blocked: "#e44", idle: "#777" }),
     layout: () => ({ id: "sidebar", size: { px: 268 } }),
-    shared: (/** @type {string} */ k) => (k === "agents.sort" ? "priority" : k === "space.colors" ? { s1: "ansi4" } : undefined),
+    shared: (/** @type {string} */ k) => (k === "agents.sort" ? "priority" : k === "space.colors" ? { s1: "ansi4", s2: "ansi3", s3: "ansi5" } : undefined),
     agents: () => [
       { address: "t1", space: "s1", space_name: "mail-server", tab: "tab1", pane: "p1", status: "working", seq: 1, pinned: false, focused: false, program: { name: "Claude Code", icon: "claude.svg", tint: true } },
       { address: "t2", space: "s2", space_name: "herdr-context-meter", tab: "tab2", pane: "p2", status: "idle", seq: 2, pinned: false, focused: false, program: null },
@@ -162,12 +162,20 @@ test("render draws Priority space tag at exact Spaces dimensions (18x18, r5, 10.
     const [ctx1] = findEl(tree, (n) => n.props?.id === "ctx-t1") ?? [];
     assert.equal(ctx1.props.pl, 52);
 
-    // Collision tag (2 letters) keeps the same 18x18 box and aligns without icon (18 + 9 = 27)
+    // Spaces sharing an initial keep one letter in the same 18x18 box and differ by badge color only
     const [tag2] = findEl(tree, (n) => n.props?.id === "ag-tag-t2") ?? [];
-    assert.equal(tag2.kids[0], "HC");
-    assert.equal(tag2.props.w, 18);
-    assert.equal(tag2.props.h, 18);
-    assert.equal(tag2.props.text_size, 9.5);
+    const [tag3] = findEl(tree, (n) => n.props?.id === "ag-tag-t3") ?? [];
+    for (const tag of [tag2, tag3]) {
+      assert.equal(tag.kids[0], "H");
+      assert.equal(tag.props.w, 18);
+      assert.equal(tag.props.h, 18);
+      assert.equal(tag.props.text_size, 10.5);
+    }
+    assert.equal(tag2.props.bg, "#e3814f");
+    assert.equal(tag3.props.bg, "#8b7cf6");
+    assert.equal(tag2.props.tooltip, "herdr-context-meter");
+    assert.equal(tag3.props.tooltip, "herdr-firstmate");
+    // No icon on this row: second line aligns under the name at tag (18) + gap (9) = 27
     const [ctx2] = findEl(tree, (n) => n.props?.id === "ctx-t2") ?? [];
     assert.equal(ctx2.props.pl, 27);
   } finally {

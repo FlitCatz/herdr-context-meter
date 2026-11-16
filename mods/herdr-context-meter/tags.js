@@ -25,59 +25,21 @@ export function spaceColor(spaceId, colors, t) {
   return /** @type {Color} */ (color.startsWith("#") ? color : (SPACE_MARK[color] ?? t[color] ?? SPACE_MARK.ansi6));
 }
 
-export const SPACE_TAG_MAX = 3;
 // Matches the shipped `spaces` mod's space badge (`size(18)`, `rounded(5)`, `text_size(10.5)`, `gap(9)`, no padding).
 export const SPACE_TAG_W = 18;
 export const SPACE_TAG_H = 18;
 export const SPACE_TAG_RADIUS = 5;
 export const SPACE_TAG_FONT_SIZE = 10.5;
-export const SPACE_TAG_PADDING = 0;
 export const SPACE_TAG_GAP = 9;
 
 /**
- * Tag text of `length` characters for a space name. Length 1 is exactly the Spaces
- * list badge letter; longer tags take the initials of the name's word segments,
- * then fill up with the following characters of the last segment used.
+ * Tag letter for a space name: exactly the Spaces list badge letter (the name's
+ * first character, uppercased). Spaces sharing an initial differ by badge color.
  * @param {string | null | undefined} name
- * @param {number} length
  * @returns {string}
  */
-export function spaceTagText(name, length) {
-  const first = [...(name ?? "")][0]?.toUpperCase() ?? "?";
-  const segments = (name ?? "").split(/[^\p{L}\p{N}]+/u).filter(Boolean).map((seg) => [...seg]);
-  if (length <= 1 || !segments.length) return first;
-  const used = segments.slice(0, length);
-  const chars = used.map((seg) => seg[0]);
-  chars.push(...used[used.length - 1].slice(1, 1 + length - chars.length));
-  return chars.join("").toUpperCase();
-}
-
-/**
- * Build a map of `spaceId -> tagText` for all distinct spaces in `list`.
- * Every space starts with its Spaces badge letter; spaces whose tag collides with
- * another distinct space get one more letter, up to SPACE_TAG_MAX.
- * @param {{ space: string, space_name?: string | null }[]} list
- * @returns {Map<string, string>}
- */
-export function spaceTags(list) {
-  /** @type {Map<string, string>} */
-  const bySpace = new Map();
-  for (const item of list) {
-    if (!item.space || bySpace.has(item.space)) continue;
-    bySpace.set(item.space, item.space_name ?? "");
-  }
-  /** @type {Map<string, string>} */
-  const tags = new Map();
-  for (const [id, name] of bySpace) tags.set(id, spaceTagText(name, 1));
-  for (let length = 2; length <= SPACE_TAG_MAX; length++) {
-    /** @type {Map<string, number>} */
-    const counts = new Map();
-    for (const tag of tags.values()) counts.set(tag, (counts.get(tag) ?? 0) + 1);
-    for (const [id, tag] of tags) {
-      if ((counts.get(tag) ?? 0) > 1) tags.set(id, spaceTagText(bySpace.get(id), length));
-    }
-  }
-  return tags;
+export function spaceTagText(name) {
+  return [...(name ?? "")][0]?.toUpperCase() ?? "?";
 }
 
 /**
