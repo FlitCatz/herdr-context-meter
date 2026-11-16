@@ -157,6 +157,8 @@ last successful read is older than 35 seconds turns to `n/a` instead of showing 
 
 ## Add it
 
+Requires Herdr 0.1.16 or later (`main.js` imports `checking` from `herdr`).
+
 1. Copy `mods/herdr-context-meter/` into `~/.config/herdr-app/mods/` (the `.js` files and
    `mod.json`; `jsconfig.json` is only for editing).
 2. Herdr's own layouts are read-only, so use a clone (one you already have, or
@@ -191,15 +193,16 @@ last successful read is older than 35 seconds turns to `n/a` instead of showing 
 ### Re-syncing with Herdr updates
 
 Herdr overwrites its shipped `~/.config/herdr-app/mods/agents/main.js` on every app start, while
-cloned mods stay untouched. `mod.json` records `cloned_from` (`agents` `0.1.15`). To keep re-syncing
+cloned mods stay untouched. `mod.json` records `cloned_from` (`agents` `0.1.16`). To keep re-syncing
 simple, all meter polling/rendering lives in `meter.js` and space-tag/label helpers live in
 `tags.js`. `main.js` differs from the shipped `agents/main.js` in two kinds of change.
 
 The behavior hunks:
 
 1. **Imports:** `import { Meter } from "./meter.js";` and `import { agentRowName, SPACE_TAG_W, spaceColor, spaceTags } from "./tags.js";`,
-   plus `exec`, `hc`, `home`, `readTextFile` from `"herdr"`.
-2. **`init(_props, cx)`:** instantiates `this.meter = new Meter(cx, { ui: { div, h_flex }, host: { exec, hc, readTextFile, home: home() }, agents, props })`.
+   plus `checking`, `exec`, `hc`, `home`, `readTextFile` from `"herdr"`.
+2. **`init(_props, cx)`:** instantiates `this.meter = new Meter(checking() ? null : cx, { ui: { div, h_flex }, host: { exec, hc, readTextFile, home: home() }, agents, props })`;
+   a `null` `cx` keeps the meter from polling (exec, file reads) while `herdr-app check` runs `init()`.
 3. **`render()` — `this.listed` & tags:** maps each address to its `AgentInfo` instead of its status
    (`kidStatus` reads `listed.get(k.address)?.status`), and computes `tags = spaceTags(list)` and
    `spaceColors = shared("space.colors") ?? {}`.
@@ -227,6 +230,10 @@ When Herdr updates `agents/main.js`, diff the old and new shipped files and appl
 update `cloned_from.version` in `mod.json`, and run `npm test && npm run check`; `tsc` points at
 any annotation still missing.
 
+Two more differences exist only so the tests can reach the code: `clean` and `title` are `export`ed
+(Herdr only uses the default export), and `test/main.test.js` loads `main.js` against stubs of
+`gpui-kit`, `gpui-base` and `herdr`.
+
 ### Props
 
 | Prop | Default | Meaning |
@@ -244,6 +251,6 @@ Plain JavaScript with `checkJs`, no build step. `usage.js` (reading and wording 
 is the cloned `agents` view.
 
 ```sh
-npm test            # node --test: matching, usage math on fixtures, tail reader, no-stall, meter row/rail, space tags
+npm test            # node --test: matching, usage math on fixtures, tail reader, no-stall, meter row/rail, space tags, title cleaning and saved-value recovery in main.js
 npm run check       # herdr-app check (also writes gpui-kit.d.ts) and tsc
 ```
