@@ -2,7 +2,7 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, exec, hc, home, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, readTextFile, window, layout } from "herdr";
+import { agents, checking, exec, hc, home, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, readTextFile, window, layout } from "herdr";
 import { Meter } from "./meter.js";
 import { agentRowName, SPACE_TAG_W, spaceColor, spaceTags } from "./tags.js";
 
@@ -39,8 +39,11 @@ function toggleSidebar() {
   run("layout.resize", { id: "sidebar", px: narrow() ? (shared("sidebar.width") ?? 268) : window()?.platform === "macos" ? 76 : 44 });
 }
 
+// Drops what an agent puts before its title: a status glyph or spinner and the separator
+// after it ("✦  Working", "⠋ - Thinking"), and Codex's blinking "[ ! ] " / "[ . ] " mark.
+// Stops at an opening bracket or quote, so a title that starts with one ("[web] login") keeps it.
 /** @param {string | null | undefined} s */
-const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
+export const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}\p{Ps}\p{Pi}]+/u, "").replace(/^\[ [!.] \] /, "").trim();
 
 /** @param {PaneInfo[]} all */
 function leadPanes(all) {
@@ -59,12 +62,12 @@ function leadPanes(all) {
  * @param {TabInfo} tab
  * @param {PaneInfo | AgentInfo | undefined} l
  */
-function title(tab, l) {
+export function title(tab, l) {
   const prog = l?.program?.name;
   const live = clean(l?.title);
   // clean() would strip a path's leading ~ or /: test the title with only its status glyph gone.
   const path = /^[~/]|^[A-Za-z]:\\/.test((l?.title ?? "").replace(/^[^\p{L}\p{N}~/]+/u, ""));
-  const telling = live && live !== prog && !path && !live.includes("@") && live.toLowerCase() !== l?.program?.key;
+  const telling = live && live !== (/** @type {PaneInfo} */ (l)?.terminal ?? /** @type {AgentInfo} */ (l)?.address) && live !== prog && !path && !live.includes("@") && live.toLowerCase() !== l?.program?.key;
   return (tab.name === prog || !tab.named) && telling ? live : tab.name;
 }
 /** @type {Record<string, number>} */
@@ -123,13 +126,17 @@ export default class Agents extends View {
     this.hovered = null;
     // Each agent's last state and when it changed (ms), kept across restarts.
     /** @type {Record<string, { s: string, at: number }>} */
-    this.changed = JSON.parse(localStorage.getItem("changed") ?? "{}");
+    try { this.changed = JSON.parse(localStorage.getItem("changed") ?? "{}"); } catch { this.changed = {}; }
+    if (!this.changed || typeof this.changed !== "object" || Array.isArray(this.changed)) this.changed = {};
     /** @type {string[]} */
-    this.pendingPins = JSON.parse(localStorage.getItem("pins") ?? "[]");
+    this.pendingPins = [];
+    try { this.pendingPins = JSON.parse(localStorage.getItem("pins") ?? "[]"); } catch { this.pendingPins = []; }
+    if (!Array.isArray(this.pendingPins)) this.pendingPins = [];
     if (!this.pendingPins.length) localStorage.removeItem("pins");
     /** @type {Set<string>} */
     this.migratingPins = new Set();
-    this.meter = new Meter(cx, {
+    // `herdr-app check` runs init() for real: a null cx keeps the meter from polling (exec, file reads).
+    this.meter = new Meter(checking() ? null : cx, {
       ui: { div, h_flex },
       host: { exec, hc, readTextFile, home: home() },
       agents,
