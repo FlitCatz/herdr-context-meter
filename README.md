@@ -157,6 +157,8 @@ last successful read is older than 35 seconds turns to `n/a` instead of showing 
 
 ## Add it
 
+Requires Herdr 0.1.16 or later (`main.js` imports `checking` from `herdr`).
+
 1. Copy `mods/herdr-context-meter/` into `~/.config/herdr-app/mods/` (the `.js` files and
    `mod.json`; `jsconfig.json` is only for editing).
 2. Herdr's own layouts are read-only, so use a clone (one you already have, or
