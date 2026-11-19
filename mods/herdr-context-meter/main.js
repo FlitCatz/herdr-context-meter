@@ -253,22 +253,17 @@ export default class Agents extends View {
    * @param {Map<string, any[]>} byParent
    * @param {string} addr
    * @param {string[]} [lead]
-   * @param {Set<string>} [seen]
    * @returns {{ t: any, lines: string[] }[]}
    */
-  tree(byParent, addr, lead = [], seen = new Set()) {
-    if (seen.has(addr)) return [];
-    seen.add(addr);
+  tree(byParent, addr, lead = []) {
     const kids = byParent.get(addr) ?? [];
-    const out = kids.flatMap((k, i) => {
+    return kids.flatMap((k, i) => {
       const last = i === kids.length - 1;
       return [
         { t: k, lines: [...lead, last ? "└" : "├"] },
-        ...this.tree(byParent, k.address, [...lead, last ? "" : "│"], seen),
+        ...this.tree(byParent, k.address, [...lead, last ? "" : "│"]),
       ];
     });
-    seen.delete(addr);
-    return out;
   }
 
   /**

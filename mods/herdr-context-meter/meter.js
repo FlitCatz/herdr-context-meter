@@ -55,9 +55,7 @@ export class Meter {
     const list = this.deps.agents().map((a) => ({ address: a.address, app: a.app, program: a.program }));
     const windows = this.deps.props()?.windows;
     cx.spawn(async (cx) => {
-      const after = typeof cx.timer?.after === "function"
-        ? (/** @type {number} */ ms, /** @type {() => void} */ fn) => cx.timer.after(ms, () => fn())
-        : undefined;
+      const after = (/** @type {number} */ ms, /** @type {() => void} */ fn) => cx.timer.after(ms, () => fn());
       /** @type {Map<string, Entry>} */
       let entries = new Map();
       try {

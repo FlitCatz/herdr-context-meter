@@ -56,7 +56,7 @@ function reasonOf(err) {
 }
 
 /**
- * Races `promise` against a `ms` timeout using `after` (or `globalThis.setTimeout` outside Herdr).
+ * Races `promise` against a `ms` timeout using `after`; without `after` it waits for `promise` alone.
  * @template T
  * @param {Promise<T>} promise
  * @param {number} ms
@@ -64,41 +64,25 @@ function reasonOf(err) {
  * @returns {Promise<T>}
  */
 function withTimeout(promise, ms, after) {
+  if (!after) return promise;
   return new Promise((resolve, reject) => {
     let settled = false;
-    /** @type {{ cancel?: () => void } | null | undefined} */
-    let task;
-    /** @type {any} */
-    let timerId;
-    const onTimeout = () => {
+    const task = after(ms, () => {
       if (settled) return;
       settled = true;
       reject(new Error("read timed out"));
-    };
-    if (typeof after === "function") {
-      task = after(ms, onTimeout);
-    } else {
-      const st = /** @type {any} */ (globalThis).setTimeout;
-      if (typeof st === "function") {
-        timerId = st(onTimeout, ms);
-        timerId?.unref?.();
-      }
-    }
-    const finish = () => {
-      task?.cancel?.();
-      if (timerId !== undefined) /** @type {any} */ (globalThis).clearTimeout?.(timerId);
-    };
+    });
     promise.then(
       (v) => {
         if (settled) return;
         settled = true;
-        finish();
+        task?.cancel?.();
         resolve(v);
       },
       (err) => {
         if (settled) return;
         settled = true;
-        finish();
+        task?.cancel?.();
         reject(err);
       },
     );
