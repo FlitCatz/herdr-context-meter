@@ -229,22 +229,46 @@ export default class Agents extends View {
     run("terminal.peek", { terminal: addr });
   }
 
+  /**
+   * Live terminals grouped by parent address in a single snapshot pass.
+   * @param {any[]} all
+   * @returns {Map<string, any[]>}
+   */
+  childrenByParent(all) {
+    /** @type {Map<string, any[]>} */
+    const byParent = new Map();
+    for (const k of all) {
+      if (k.state !== "live") continue;
+      const parent = k.parent;
+      if (parent == null) continue;
+      let kids = byParent.get(parent);
+      if (!kids) byParent.set(parent, (kids = []));
+      kids.push(k);
+    }
+    return byParent;
+  }
+
   // Live sub-agents of `addr`, depth first, each with the tree lines in front of it.
   /**
-   * @param {any[]} all
+   * @param {Map<string, any[]>} byParent
    * @param {string} addr
    * @param {string[]} [lead]
+   * @param {Set<string>} [seen]
    * @returns {{ t: any, lines: string[] }[]}
    */
-  tree(all, addr, lead = []) {
-    const kids = all.filter((k) => k.parent === addr && k.state === "live");
-    return kids.flatMap((k, i) => {
+  tree(byParent, addr, lead = [], seen = new Set()) {
+    if (seen.has(addr)) return [];
+    seen.add(addr);
+    const kids = byParent.get(addr) ?? [];
+    const out = kids.flatMap((k, i) => {
       const last = i === kids.length - 1;
       return [
         { t: k, lines: [...lead, last ? "└" : "├"] },
-        ...this.tree(all, k.address, [...lead, last ? "" : "│"]),
+        ...this.tree(byParent, k.address, [...lead, last ? "" : "│"], seen),
       ];
     });
+    seen.delete(addr);
+    return out;
   }
 
   /**
@@ -302,24 +326,36 @@ export default class Agents extends View {
   render(_cx) {
     const t = /** @type {Record<string, Color>} */ (theme());
     if (props()?.sortMenu) return this.sortMenu(t);
-    const collapsed = narrow();
     const sidebarPx = find(layout(), "sidebar")?.size?.px ?? Infinity;
+    const collapsed = sidebarPx < 160;
     const sort = sortOf();
     let list = agents();
     this.listed = new Map(list.map((a) => [a.address, a]));
     const all = terminals();
     this.migratePins(all);
+    const byParent = this.childrenByParent(all);
+    /** @type {Map<string, { t: any, lines: string[] }[]>} */
+    const trees = new Map();
+    /** @param {string} addr */
+    const treeOf = (addr) => {
+      let cached = trees.get(addr);
+      if (!cached) {
+        cached = this.tree(byParent, addr);
+        trees.set(addr, cached);
+      }
+      return cached;
+    };
     const shown = focused()?.agent;
     const now = Date.now();
     this.track(list, now);
     // A kept sub-agent (one with a pane) is in agents() too: where a tree shows
     // it, it gets no row of its own, unless it's pinned.
-    const nested = new Set(collapsed ? [] : list.flatMap((a) => this.tree(all, a.address).map((s) => s.t.address)));
+    const nested = new Set(collapsed ? [] : list.flatMap((a) => treeOf(a.address).map((s) => s.t.address)));
     list = list.filter((a) => a.pinned || !nested.has(a.address));
     const tabCounts = new Map();
     for (const a of list) tabCounts.set(a.tab, (tabCounts.get(a.tab) ?? 0) + 1);
     const byPriority = sort.id === "priority";
-    const urgency = new Map(list.map((a) => [a.address, Math.max(this.rank(a), ...this.tree(all, a.address).map((s) => RANK[kidStatus(s.t, this.listed)] ?? 0))]));
+    const urgency = new Map(list.map((a) => [a.address, Math.max(this.rank(a), ...treeOf(a.address).map((s) => RANK[kidStatus(s.t, this.listed)] ?? 0))]));
     /** @param {AgentInfo} a */
     const rankOf = (a) => urgency.get(a.address);
     if (byPriority) list = [...list].sort((x, y) => rankOf(y) - rankOf(x) || this.since(y) - this.since(x) || y.seq - x.seq);
@@ -333,7 +369,7 @@ export default class Agents extends View {
      * @param {number} i
      */
     const withKids = (a, i) => {
-      const subs = collapsed ? [] : this.tree(all, a.address);
+      const subs = collapsed ? [] : treeOf(a.address);
       const r = row(a, i, subs);
       if (this.folded.has(a.address)) return [r];
       return [r, ...subs.map((s) => this.subRow(t, s, shown, byPriority, sidebarPx))];

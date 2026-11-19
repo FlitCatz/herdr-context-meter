@@ -351,6 +351,54 @@ test("Codex: a first line that cannot be read is n/a, not a guess", async () => 
   assert.ok(!host.calls.some((c) => c.command === PROGRAMS.tail));
 });
 
+test("Codex: a missing or vanished auxiliary rollout does not discard a readable one, and all-failed shows the error", async () => {
+  const good = "/home/fake/.codex/sessions/2026/11/12/rollout-good.jsonl";
+  const vanishedTail = "/home/fake/.codex/sessions/2026/11/12/rollout-vanished-tail.jsonl";
+  const vanishedHead = "/home/fake/.codex/sessions/2026/11/12/rollout-vanished-head.jsonl";
+
+  // Passes head, then vanishes before tail
+  const hostTailMissing = fakeHost({
+    hc: { t5: terminal(100) },
+    ps: "100 1\n",
+    lsof: `p100\nn${good}\nn${vanishedTail}\n`,
+    files: { [good]: CODEX },
+    execFails: (command, args) => (command === PROGRAMS.tail && args[2] === vanishedTail ? new Error("no such file") : null),
+  });
+  // Let head see vanishedTail as a non-subagent rollout, while tail fails on it.
+  const origExec = hostTailMissing.exec.bind(hostTailMissing);
+  hostTailMissing.exec = async (command, args, options) => {
+    if (command === PROGRAMS.head && args[2] === vanishedTail) {
+      hostTailMissing.calls.push({ command, args, timeout: options?.timeout });
+      return { code: 0, stdout: '{"type":"session_meta","payload":{"id":"1"}}\n', stderr: "" };
+    }
+    return origExec(command, args, options);
+  };
+  const tailRes = (await readAll(hostTailMissing, [codexAgent("t5")], ctx())).get("t5");
+  assert.equal(tailRes?.state, "ok");
+  assert.equal(tailRes?.state === "ok" && tailRes.used, 120170);
+
+  // Fails at head alongside a good rollout
+  const hostHeadMissing = fakeHost({
+    hc: { t5: terminal(100) },
+    ps: "100 1\n",
+    lsof: `p100\nn${good}\nn${vanishedHead}\n`,
+    files: { [good]: CODEX },
+  });
+  const headRes = (await readAll(hostHeadMissing, [codexAgent("t5")], ctx())).get("t5");
+  assert.equal(headRes?.state, "ok");
+  assert.equal(headRes?.state === "ok" && headRes.used, 120170);
+
+  // When every rollout fails at tail, report the error reason
+  const hostAllTailFail = fakeHost({
+    hc: { t5: terminal(100) },
+    ps: "100 1\n",
+    lsof: `p100\nn${good}\n`,
+    files: { [good]: CODEX },
+    execFails: (command) => (command === PROGRAMS.tail ? new Error("timed out") : null),
+  });
+  assert.deepEqual((await readAll(hostAllTailFail, [codexAgent("t5")], ctx())).get("t5"), { state: "na", reason: "read timed out", kind: "codex" });
+});
+
 test("agents it cannot read are n/a, each with its own reason", async () => {
   const host = fakeHost({ hc: {} });
   const entries = await readAll(host, [

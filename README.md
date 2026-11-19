@@ -68,8 +68,9 @@ Claude transcripts do not record the window, so the mod has a table (`claudeWind
 | an id the table cannot place | 200,000, marked "window assumed" on hover |
 
 The 1M variants of the earlier models are an opt-in that the transcript does not name. If an
-agent shows more than 200,000 tokens in use on such a model, the mod switches that agent to
-1,000,000 (and says so on hover). To change a window, use the `windows` prop.
+agent shows more than 200,000 tokens in use on such a model without a matching `windows` override,
+the mod switches that agent to 1,000,000 (and says so on hover). To change a window, use the
+`windows` prop.
 
 ### Auto-compact: no marker is drawn
 
@@ -149,11 +150,12 @@ for other systems), so nothing depends on the `PATH` or folder Herdr was started
 
 ## Refreshing
 
-Every 5 seconds, one round at a time. Each program in a round has a 4-second limit. A round that
+Every 5 seconds, one round at a time. Each program and `hc get` lookup in a round has a 4-second
+limit: an unresponsive `hc get` turns only that row to `n/a` without blocking other agents, and
+an unresolved `hc get` for the same address is not started again until it settles. A round that
 has not finished after 20 seconds is given up on: the next tick starts a new one, and the old
 round's late answer is discarded, so one stuck read cannot freeze later updates. An entry whose
 last successful read is older than 35 seconds turns to `n/a` instead of showing an old number.
-(`hc get` has no time limit of its own; if it hangs, the round is abandoned the same way.)
 
 ## Add it
 

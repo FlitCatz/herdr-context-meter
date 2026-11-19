@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BAR_H, BAR_W, Meter, STALE_MS, SUB_BAR_W } from "../mods/herdr-context-meter/meter.js";
+import { readFileSync } from "node:fs";
+import { BAR_H, BAR_W, Meter, ROUND_LIMIT_MS, STALE_MS, SUB_BAR_W } from "../mods/herdr-context-meter/meter.js";
+import { PROGRAMS } from "../mods/herdr-context-meter/sources.js";
 
 /** Tiny fluent element stub recording gpui-kit builder calls for assertions. */
 function elStub(kind) {
@@ -261,4 +263,115 @@ test("rowLine: shows bar % · short model · elapsed (no token counts) and drops
   assert.equal(naRow.children[2].kind, "div");
   assert.equal(naRow.children[2].children.length, 0);
   assert.equal(naRow.children[3].children[0], "· <1m");
+});
+
+test("Meter: one hung hc request times out to n/a for that row, does not block healthy rows, and is not duplicated across rounds", async () => {
+  const session = "11111111-2222-4333-8444-555555555555";
+  const transcriptPath = `/tmp/fake/.claude/projects/-w/${session}.jsonl`;
+  const claudeFixture = readFileSync(new URL("./fixtures/claude-transcript.jsonl", import.meta.url), "utf8");
+
+  let clock = 0;
+  /** @type {{ at: number, fn: () => void, cancelled: boolean }[]} */
+  const timers = [];
+  let notifies = 0;
+  const flush = async () => {
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+  };
+  const advance = async (/** @type {number} */ ms) => {
+    clock += ms;
+    await flush();
+    for (const timer of timers) {
+      if (!timer.cancelled && timer.at <= clock) {
+        timer.cancelled = true;
+        timer.fn();
+      }
+    }
+    await flush();
+  };
+
+  const cx = /** @type {any} */ ({
+    timer: {
+      every: () => ({ cancel: () => {}, is_done: () => false }),
+      after: (/** @type {number} */ ms, /** @type {() => void} */ fn) => {
+        const entry = { at: clock + ms, fn: () => fn(), cancelled: false };
+        timers.push(entry);
+        return { cancel: () => { entry.cancelled = true; }, is_done: () => entry.cancelled };
+      },
+    },
+    spawn: (/** @type {(cx: any) => Promise<void>} */ body) => {
+      void body(cx);
+      return { cancel: () => {}, is_done: () => false };
+    },
+    notify: () => { notifies++; },
+  });
+
+  /** @type {Record<string, number>} */
+  const hcCalls = { t1: 0, t2: 0 };
+  /** @type {((v: any) => void) | null} */
+  let releaseT2 = null;
+  let t2Hangs = true;
+
+  const host = /** @type {any} */ ({
+    home: "/tmp/fake",
+    async hc(/** @type {string[]} */ args) {
+      const addr = args[1];
+      hcCalls[addr] = (hcCalls[addr] ?? 0) + 1;
+      if (addr === "t2" && t2Hangs) {
+        return new Promise((resolve) => { releaseT2 = resolve; });
+      }
+      const pid = addr === "t1" ? 500 : 501;
+      return { code: 0, stdout: JSON.stringify({ foreground: { pid } }), stderr: "" };
+    },
+    async readTextFile(/** @type {string} */ path) {
+      if (path.endsWith("/500.json")) return JSON.stringify({ pid: 500, sessionId: session });
+      if (path.endsWith("/501.json")) return JSON.stringify({ pid: 501, sessionId: session });
+      return null;
+    },
+    async exec(/** @type {string} */ command) {
+      if (command === PROGRAMS.find) return { code: 0, stdout: `${transcriptPath}\n`, stderr: "" };
+      if (command === PROGRAMS.tail) return { code: 0, stdout: claudeFixture, stderr: "" };
+      throw new Error(`unexpected ${command}`);
+    },
+  });
+
+  const a1 = makeAgent("t1");
+  const a2 = makeAgent("t2");
+  const meter = new Meter(cx, {
+    ui: /** @type {any} */ (ui),
+    host,
+    agents: () => [a1, a2],
+    props: () => ({}),
+    now: () => clock,
+  });
+
+  // Round 1 at t=0: t2 hangs, then times out after 4s; t1 publishes ok and t2 publishes n/a
+  await advance(4000);
+  assert.ok(meter.result.at > 0, "round 1 should publish instead of stalling");
+  assert.equal(meter.rowLine(THEME, a1, 0).children[1].children[0], "13%");
+  assert.equal(meter.rowLine(THEME, a2, 0).children[1].children[0], "n/a");
+  assert.match(String(meter.rowLine(THEME, a2, 0).props.tooltip), /timed out/);
+
+  // Round 2 at t=20s and Round 3 at t=40s (past STALE_MS=35s)
+  clock = ROUND_LIMIT_MS;
+  meter.refresh(cx);
+  await advance(4000);
+  clock = 2 * ROUND_LIMIT_MS;
+  meter.refresh(cx);
+  await advance(4000);
+
+  assert.equal(hcCalls.t1, 3, "healthy agent polled on all 3 rounds");
+  assert.equal(hcCalls.t2, 1, "unsettled hc request for t2 must not be duplicated");
+  assert.equal(meter.rowLine(THEME, a1, 0).children[1].children[0], "13%");
+  assert.equal(meter.rowLine(THEME, a2, 0).children[1].children[0], "n/a");
+  assert.ok(notifies >= 3);
+
+  // Once t2's hung hc finally settles, the next round queries t2 again and recovers
+  t2Hangs = false;
+  releaseT2?.({ code: 0, stdout: JSON.stringify({ foreground: { pid: 501 } }), stderr: "" });
+  await flush();
+  clock += ROUND_LIMIT_MS;
+  meter.refresh(cx);
+  await flush();
+  assert.equal(hcCalls.t2, 2);
+  assert.equal(meter.rowLine(THEME, a2, 0).children[1].children[0], "13%");
 });

@@ -38,6 +38,8 @@ export class Meter {
     this.paths = new Map();
     /** @type {Map<string, boolean>} */
     this.subagents = new Map();
+    /** @type {Map<string, import("./sources.js").InFlightForeground>} */
+    this.inFlight = new Map();
     /** @type {{ at: number, entries: Map<string, Entry> }} */
     this.result = { at: 0, entries: new Map() };
     if (cx) {
@@ -53,12 +55,17 @@ export class Meter {
     const list = this.deps.agents().map((a) => ({ address: a.address, app: a.app, program: a.program }));
     const windows = this.deps.props()?.windows;
     cx.spawn(async (cx) => {
+      const after = typeof cx.timer?.after === "function"
+        ? (/** @type {number} */ ms, /** @type {() => void} */ fn) => cx.timer.after(ms, () => fn())
+        : undefined;
       /** @type {Map<string, Entry>} */
       let entries = new Map();
       try {
         entries = await readAll(this.deps.host, list, {
           paths: this.paths,
           subagents: this.subagents,
+          inFlight: this.inFlight,
+          after,
           windows: windows && typeof windows === "object" ? windows : {},
         });
       } catch { /* every entry then reads n/a */ }

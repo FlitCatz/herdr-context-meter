@@ -82,6 +82,13 @@ test("Claude reading: a window override changes the share", () => {
   assert.equal(Math.round(r.pct), 33);
 });
 
+test("Claude reading: an explicit window override is kept even when usage exceeds it", () => {
+  const r = claudeReading({ model: "claude-opus-4-6", input: 100000, cacheWrite: 0, cacheRead: 500000 }, { "claude-opus-4-6": 500000 });
+  assert.equal(r.window, 500000);
+  assert.equal(r.assumed, false);
+  assert.equal(r.pct, 100);
+});
+
 test("Codex tail: the latest token_count, its window and the model of the latest turn", () => {
   const rec = parseCodexTail(fixture("codex-rollout.jsonl"));
   assert.deepEqual(rec, { tokens: 120170, window: 258400, at: Date.parse("2026-11-12T07:40:16.066Z"), model: "gpt-6.1-sol" });
