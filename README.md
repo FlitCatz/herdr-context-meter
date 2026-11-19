@@ -221,6 +221,10 @@ The behavior hunks:
    underneath inside a `v_flex()` (`py(5)`, `gap(3)`).
 7. **`render()` — `ag-sort` button:** `openOverlay({ mod: "herdr-context-meter", ... })` instead of
    `mod: "agents"`.
+8. **`render()` — sub-agent trees:** `childrenByParent(all)` groups live terminals by parent once
+   per render, `tree(byParent, addr, lead)` reads that map instead of filtering `all`, and a
+   per-render `treeOf` cache reuses each tree for the nesting, urgency and sub-row passes.
+   `collapsed` is `sidebarPx < 160` (the `narrow()` test) so `layout()` is read once.
 
 The type annotations for `checkJs`, spread through the file: the `@typedef` imports at the top,
 JSDoc `@param`/`@returns`/`@type` on functions, closures and fields, `this.hovered = null` in
