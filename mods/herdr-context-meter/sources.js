@@ -19,7 +19,9 @@ import {
  *   home: string,
  * }} Host
  * @typedef {{ address: string, app: string | null, program?: { name?: string } }} AgentRef
- * @typedef {{ paths: Map<string, string>, subagents: Map<string, boolean>, windows: Record<string, unknown> }} Context
+ * @typedef {{ promise: Promise<Foreground | null>, timedOut: boolean }} InFlightForeground
+ * @typedef {(ms: number, fn: () => void) => ({ cancel?: () => void } | null | undefined)} AfterFn
+ * @typedef {{ paths: Map<string, string>, subagents: Map<string, boolean>, windows: Record<string, unknown>, inFlight?: Map<string, InFlightForeground>, after?: AfterFn }} Context
  * @typedef {{ pid: number, argv?: string[] }} Foreground
  */
 
@@ -54,6 +56,40 @@ function reasonOf(err) {
 }
 
 /**
+ * Races `promise` against a `ms` timeout using `after`; without `after` it waits for `promise` alone.
+ * @template T
+ * @param {Promise<T>} promise
+ * @param {number} ms
+ * @param {AfterFn | undefined} after
+ * @returns {Promise<T>}
+ */
+function withTimeout(promise, ms, after) {
+  if (!after) return promise;
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const task = after(ms, () => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("read timed out"));
+    });
+    promise.then(
+      (v) => {
+        if (settled) return;
+        settled = true;
+        task?.cancel?.();
+        resolve(v);
+      },
+      (err) => {
+        if (settled) return;
+        settled = true;
+        task?.cancel?.();
+        reject(err);
+      },
+    );
+  });
+}
+
+/**
  * Parses the tail of a file with growing slices. Rejects when the file can't be read.
  * @template T
  * @param {Host} host
@@ -84,6 +120,38 @@ export async function foregroundOf(host, address) {
   const fg = JSON.parse(ran.stdout)?.foreground;
   if (!Number.isInteger(fg?.pid)) return null;
   return Array.isArray(fg.argv) ? { pid: fg.pid, argv: fg.argv } : { pid: fg.pid };
+}
+
+/**
+ * Per-agent `hc get` with a timeout and in-flight deduplication: `hc` cannot be cancelled on
+ * the host, so a still-pending lookup for `address` is reused rather than started again.
+ * @param {Host} host
+ * @param {string} address
+ * @param {Map<string, InFlightForeground>} inFlight
+ * @param {AfterFn | undefined} after
+ * @returns {Promise<{ fg: Foreground | null, error?: unknown }>}
+ */
+async function lookupForeground(host, address, inFlight, after) {
+  let entry = inFlight.get(address);
+  if (entry?.timedOut) return { fg: null, error: new Error("read timed out") };
+  if (!entry) {
+    const promise = foregroundOf(host, address);
+    entry = { promise, timedOut: false };
+    inFlight.set(address, entry);
+    const current = entry;
+    const clear = () => {
+      if (inFlight.get(address) === current) inFlight.delete(address);
+    };
+    promise.then(clear, clear);
+  }
+  try {
+    return { fg: await withTimeout(entry.promise, EXEC_TIMEOUT_MS, after) };
+  } catch (error) {
+    if (inFlight.get(address) === entry && reasonOf(error) === "read timed out") {
+      entry.timedOut = true;
+    }
+    return { fg: null, error };
+  }
 }
 
 // ---- Claude ---------------------------------------------------------------------------
@@ -229,9 +297,17 @@ async function isSubagentRollout(host, path, ctx) {
 }
 
 /**
+ * Picks the most informative failure when every file failed (`read timed out` over `read failed`).
+ * @param {unknown[]} errors
+ */
+function firstFailure(errors) {
+  return errors.find((e) => reasonOf(e) === "read timed out") ?? errors[0];
+}
+
+/**
  * Of the rollout files a Codex process has open, leaving out sub-agents' (their counts are
  * another thread's context) and any not yet known to be the session's, the one with the newest token count: a resumed session has its
- * old one open too.
+ * old one open too. Per-file failures are isolated so one vanished auxiliary file does not drop a readable rollout.
  * @param {Host} host
  * @param {string[]} open
  * @param {Context} ctx
@@ -239,12 +315,33 @@ async function isSubagentRollout(host, path, ctx) {
  */
 async function readCodex(host, open, ctx) {
   if (open.length === 0) return missing("session file not found", "codex");
-  const subagent = await Promise.all(open.map((path) => isSubagentRollout(host, path, ctx)));
-  const paths = open.filter((_, i) => subagent[i] === false);
-  if (paths.length === 0) return missing("no main session file", "codex");
-  const recs = await Promise.all(paths.map((path) => tailParse(host, path, parseCodexTail)));
-  const latest = recs.filter((r) => r !== null).sort((a, b) => b.at - a.at)[0];
-  return latest ? codexReading(latest) : missing("no usage recorded yet", "codex");
+  const headResults = await Promise.allSettled(open.map((path) => isSubagentRollout(host, path, ctx)));
+  /** @type {string[]} */
+  const paths = [];
+  /** @type {unknown[]} */
+  const headErrors = [];
+  for (let i = 0; i < open.length; i++) {
+    const r = headResults[i];
+    if (r.status === "rejected") headErrors.push(r.reason);
+    else if (r.value === false) paths.push(open[i]);
+  }
+  if (paths.length === 0) {
+    if (headErrors.length === open.length) throw firstFailure(headErrors);
+    return missing("no main session file", "codex");
+  }
+  const tailResults = await Promise.allSettled(paths.map((path) => tailParse(host, path, parseCodexTail)));
+  /** @type {NonNullable<ReturnType<typeof parseCodexTail>>[]} */
+  const recs = [];
+  /** @type {unknown[]} */
+  const tailErrors = [];
+  for (const r of tailResults) {
+    if (r.status === "rejected") tailErrors.push(r.reason);
+    else if (r.value !== null) recs.push(r.value);
+  }
+  const latest = recs.sort((a, b) => b.at - a.at)[0];
+  if (latest) return codexReading(latest);
+  if (tailErrors.length === paths.length) throw firstFailure(tailErrors);
+  return missing("no usage recorded yet", "codex");
 }
 
 // ---- Antigravity CLI (agy) ------------------------------------------------------------
@@ -339,17 +436,18 @@ export async function readAll(host, agents, ctx) {
     else supported.push({ agent, kind });
   }
 
-  /** @type {Map<string, Foreground | null>} */
+  const inFlight = ctx.inFlight ?? new Map();
+  /** @type {Map<string, { fg: Foreground | null, error?: unknown }>} */
   const foreground = new Map();
   await Promise.all(supported.map(async ({ agent }) => {
-    foreground.set(agent.address, await foregroundOf(host, agent.address).catch(none));
+    foreground.set(agent.address, await lookupForeground(host, agent.address, inFlight, ctx.after));
   }));
 
   /** @type {Map<string, Foreground>} */
   const lsofTargets = new Map();
   let needsAgySettings = false;
   for (const { agent, kind } of supported) {
-    const fg = foreground.get(agent.address);
+    const fg = foreground.get(agent.address)?.fg;
     if (!fg) continue;
     if (kind === "codex" || kind === "agy") lsofTargets.set(agent.address, fg);
     if (kind === "agy" && !modelFromArgv(fg.argv)) needsAgySettings = true;
@@ -364,9 +462,11 @@ export async function readAll(host, agents, ctx) {
   const fallbackAgyModel = needsAgySettings ? await agySettingsModel(host) : null;
 
   await Promise.all(supported.map(async ({ agent, kind }) => {
-    const fg = foreground.get(agent.address);
+    const lookup = foreground.get(agent.address);
+    const fg = lookup?.fg;
     try {
-      if (!fg) entries.set(agent.address, missing("no agent process found", kind));
+      if (lookup?.error) entries.set(agent.address, missing(reasonOf(lookup.error), kind));
+      else if (!fg) entries.set(agent.address, missing("no agent process found", kind));
       else if (kind === "claude") entries.set(agent.address, await readClaude(host, fg, ctx));
       else if (!openByAddress) entries.set(agent.address, missing(openFailure, kind));
       else if (kind === "codex") {

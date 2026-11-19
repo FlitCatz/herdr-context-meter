@@ -125,10 +125,11 @@ export function parseClaudeTail(text) {
  */
 export function claudeReading(rec, overrides) {
   const used = rec.input + rec.cacheWrite + rec.cacheRead;
+  const override = windowOverride(rec.model ?? "", overrides);
   let { tokens: window, assumed } = claudeWindow(rec.model, overrides);
-  // The record does not say whether a 1M variant is selected; more than the standard window
-  // in use can only mean it is.
-  if (used > window && window < MILLION_WINDOW) { window = MILLION_WINDOW; assumed = true; }
+  // The record does not say whether a 1M variant is selected; without a matching explicit
+  // override, more than the standard window in use can only mean it is.
+  if (override === null && used > window && window < MILLION_WINDOW) { window = MILLION_WINDOW; assumed = true; }
   return {
     state: "ok", kind: "claude", used, window, model: rec.model, assumed,
     pct: clampPct((used / window) * 100),

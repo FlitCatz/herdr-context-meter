@@ -183,3 +183,66 @@ test("render draws Priority space tag at exact Spaces dimensions (18x18, r5, 10.
     delete /** @type {any} */ (globalThis).__herdrMock;
   }
 });
+
+test("render reads layout once and indexes terminals by parent once while preserving nested trees and priority", () => {
+  globalThis.__checking = true;
+  let layoutCalls = 0;
+  let parentReads = 0;
+  /** @param {string} address @param {string | null} parent @param {string} [status] */
+  const term = (address, parent, status = "idle") => {
+    const t = { address, state: "live", status, program: { name: "Codex" } };
+    Object.defineProperty(t, "parent", {
+      enumerable: true,
+      get() {
+        parentReads++;
+        return parent;
+      },
+    });
+    return t;
+  };
+  const allTerminals = [
+    term("a1", null, "idle"),
+    term("c1", "a1", "working"),
+    term("g1", "c1", "blocked"),
+    term("a2", null, "working"),
+    term("c2", "a2", "idle"),
+    term("dead", "a1", "idle"),
+  ];
+  // Last terminal is not live and must stay out of the tree.
+  allTerminals[5].state = "dead";
+
+  /** @type {string[]} */
+  let agentOrder = [];
+  /** @type {any} */ (globalThis).__herdrMock = {
+    theme: () => ({ chrome: "#111", border: "#222", dim: "#666", foreground: "#eee", muted: "#999", selected: "#333", hover: "#222", working: "#eb0", blocked: "#e44", idle: "#777", raised: "#222", input: "#444" }),
+    layout: () => {
+      layoutCalls++;
+      return { id: "sidebar", size: { px: 268 } };
+    },
+    shared: (/** @type {string} */ k) => (k === "agents.sort" ? "priority" : undefined),
+    agents: () => [
+      { address: "a2", space: "s1", space_name: "one", tab: "tab2", pane: "p2", status: "working", seq: 2, pinned: false, focused: false, program: { name: "Claude Code" } },
+      { address: "a1", space: "s1", space_name: "one", tab: "tab1", pane: "p1", status: "idle", seq: 1, pinned: false, focused: false, program: { name: "Claude Code" } },
+      { address: "c1", space: "s1", space_name: "one", tab: "tab1", pane: "p3", status: "working", seq: 3, pinned: false, focused: false, program: { name: "Codex" } },
+    ],
+    terminals: () => allTerminals,
+    panes: () => [],
+    focused: () => ({}),
+    spaces: () => [],
+    setAgentOrder: (/** @type {string[]} */ order) => { agentOrder = order; },
+  };
+  try {
+    const { view } = runInit({});
+    const tree = view.render(/** @type {any} */ ({}));
+    assert.equal(layoutCalls, 1, "layout() should be read once per render");
+    assert.ok(parentReads <= allTerminals.length, `expected at most ${allTerminals.length} parent reads, got ${parentReads}`);
+    // c1 is nested under a1 so it gets no top-level row; a1 inherits g1's blocked urgency over a2
+    assert.deepEqual(agentOrder, ["a1", "a2"]);
+    assert.ok(findEl(tree, (n) => n.props?.id === "sub-c1"), "kept child c1 renders under a1");
+    assert.ok(findEl(tree, (n) => n.props?.id === "sub-g1"), "grandchild g1 renders under c1");
+    assert.equal(findEl(tree, (n) => n.props?.id === "sub-dead"), null, "non-live terminal is excluded");
+  } finally {
+    delete globalThis.__checking;
+    delete /** @type {any} */ (globalThis).__herdrMock;
+  }
+});
