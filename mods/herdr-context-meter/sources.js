@@ -50,8 +50,26 @@ const AGY_CONV = /\/\.gemini\/antigravity-cli\/(?:conversations\/([0-9a-f-]{36})
 /** For `.catch`: a failed optional read is just absent. @returns {null} */
 const none = () => null;
 
+/**
+ * Classifies an `lsof` failure when it exited non-zero with no PID records.
+ * @param {string} stderr
+ * @returns {string}
+ */
+export function lsofFailureReason(stderr) {
+  if (/timed?\s*out|\btimeout\b/i.test(stderr)) return "read timed out";
+  if (/permission denied|operation not permitted|not permitted|\beacces\b|\beperm\b/i.test(stderr)) {
+    return "read failed: permission denied";
+  }
+  if (/illegal|invalid|unacceptable|usage:/i.test(stderr)) {
+    return "read failed: invalid lsof arguments";
+  }
+  return "read failed";
+}
+
 /** @param {unknown} err */
 function reasonOf(err) {
+  const custom = /** @type {{ reason?: unknown } | null | undefined} */ (err)?.reason;
+  if (typeof custom === "string" && custom) return custom;
   return /time/i.test(String(/** @type {Error} */ (err)?.message)) ? "read timed out" : "read failed";
 }
 
@@ -240,8 +258,13 @@ export function parseLsof(text) {
   const files = new Map();
   let pid = null;
   for (const line of text.split("\n")) {
-    if (line.startsWith("p")) { pid = Number(line.slice(1)); files.set(pid, []); }
-    else if (line.startsWith("n") && pid !== null) files.get(pid)?.push(line.slice(1));
+    const match = /^p(\d+)$/.exec(line);
+    if (match) {
+      pid = Number(match[1]);
+      if (!files.has(pid)) files.set(pid, []);
+    } else if (line.startsWith("n") && pid !== null) {
+      files.get(pid)?.push(line.slice(1));
+    }
   }
   return files;
 }
@@ -259,9 +282,14 @@ export async function openFiles(host, targets) {
   const pids = new Map();
   for (const [address, fg] of targets) pids.set(address, withDescendants(ps.stdout, fg.pid));
   const every = [...new Set([...pids.values()].flat())];
-  // lsof exits 1 when one of the pids ended meanwhile, still printing the others.
+  // lsof exits 1 when one of the pids ended meanwhile, still printing the others;
+  // only a non-zero exit with no PID records at all means lsof itself failed.
   const lsof = await host.exec(PROGRAMS.lsof, ["-n", "-P", "-p", every.join(","), "-Fpn"], { timeout: EXEC_TIMEOUT_MS });
   const files = parseLsof(lsof.stdout);
+  if (lsof.code !== 0 && files.size === 0) {
+    const reason = lsofFailureReason(lsof.stderr ?? "");
+    throw Object.assign(new Error(reason), { reason });
+  }
   /** @type {Map<string, string[]>} */
   const byAddress = new Map();
   for (const [address, list] of pids) {

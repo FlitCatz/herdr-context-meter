@@ -92,6 +92,8 @@ const sortOf = () => SORTS.find((s) => s.id === shared("agents.sort")) ?? SORTS[
 const SECTION = { 4: "Needs you", 3: "Done", 2: "Working", 1: "Idle" };
 /** @type {Record<number, string>} */
 const SECTION_STATUS = { 4: "blocked", 3: "done", 2: "working" };
+const PIN_MIGRATION_RETRY_MS = 5000;
+const PIN_MIGRATION_MAX_ATTEMPTS = 3;
 
 /** @param {number} ms */
 function duration(ms) {
@@ -133,8 +135,8 @@ export default class Agents extends View {
     try { this.pendingPins = JSON.parse(localStorage.getItem("pins") ?? "[]"); } catch { this.pendingPins = []; }
     if (!Array.isArray(this.pendingPins)) this.pendingPins = [];
     if (!this.pendingPins.length) localStorage.removeItem("pins");
-    /** @type {Set<string>} */
-    this.migratingPins = new Set();
+    /** @type {Map<string, { attempts: number, at: number }>} */
+    this.migratingPins = new Map();
     // `herdr-app check` runs init() for real: a null cx keeps the meter from polling (exec, file reads).
     this.meter = new Meter(checking() ? null : cx, {
       ui: { div, h_flex },
@@ -168,15 +170,27 @@ export default class Agents extends View {
 
   // Keep offline pins until their terminal returns, and keep each pending until
   // core echoes the label so a failed write doesn't erase the old pin.
-  /** @param {any[]} all */
-  migratePins(all) {
+  // Retry a dropped migration after a bounded interval, capped so a permanent
+  // failure never retries forever.
+  /**
+   * @param {any[]} all
+   * @param {number} now
+   */
+  migratePins(all, now) {
+    if (!this.pendingPins.length) return;
     const listed = new Map(all.filter((t) => t.state === "live").map((t) => [t.address, t]));
     const pending = this.pendingPins.filter((address) => {
       const terminal = listed.get(address);
+      const state = this.migratingPins.get(address);
       if (!terminal) return true;
-      if (terminal.labels?.["herdr.pinned"]) return false;
-      if (!this.migratingPins.has(address)) {
-        this.migratingPins.add(address);
+      if (terminal.labels?.["herdr.pinned"]) {
+        this.migratingPins.delete(address);
+        return false;
+      }
+      const attempts = state?.attempts ?? 0;
+      const due = !state || now - state.at >= PIN_MIGRATION_RETRY_MS;
+      if (attempts < PIN_MIGRATION_MAX_ATTEMPTS && due) {
+        this.migratingPins.set(address, { attempts: attempts + 1, at: now });
         run("terminal.pin", { terminal: address, pinned: true });
       }
       return true;
@@ -327,7 +341,8 @@ export default class Agents extends View {
     let list = agents();
     this.listed = new Map(list.map((a) => [a.address, a]));
     const all = terminals();
-    this.migratePins(all);
+    const now = Date.now();
+    this.migratePins(all, now);
     const byParent = this.childrenByParent(all);
     /** @type {Map<string, { t: any, lines: string[] }[]>} */
     const trees = new Map();
@@ -341,7 +356,6 @@ export default class Agents extends View {
       return cached;
     };
     const shown = focused()?.agent;
-    const now = Date.now();
     this.track(list, now);
     // A kept sub-agent (one with a pane) is in agents() too: where a tree shows
     // it, it gets no row of its own, unless it's pinned.
