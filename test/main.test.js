@@ -248,7 +248,7 @@ test("render reads layout once and indexes terminals by parent once while preser
   }
 });
 
-test("migratePins retries after a terminal reconnects during the first pin and completes once core echoes the label", () => {
+test("migratePins retries a pin dropped by a reconnect once the retry interval elapses and completes once core echoes the label", () => {
   globalThis.__checking = true;
   let now = 1000;
   const origNow = Date.now;
@@ -292,10 +292,16 @@ test("migratePins retries after a terminal reconnects during the first pin and c
     now = 1150;
     currentTerminals = [{ address: "t1", state: "live", labels: {} }];
     view.render(/** @type {any} */ ({}));
-    assert.equal(runs.length, 2, "reconnect must trigger a retry");
+    assert.equal(runs.length, 1, "no retry before the 5 s interval elapses");
+
+    // The dropped pin is re-sent once 5 s have passed since the first attempt.
+    now = 6000;
+    view.render(/** @type {any} */ ({}));
+    assert.equal(runs.length, 2, "dropped pin must be retried after the interval");
+    assert.deepEqual(runs[1], { cmd: "terminal.pin", args: { terminal: "t1", pinned: true } });
 
     // Once core echoes the pinned label, migration finishes and clears saved pins.
-    now = 1200;
+    now = 6100;
     currentTerminals = [{ address: "t1", state: "live", labels: { "herdr.pinned": "true" } }];
     view.render(/** @type {any} */ ({}));
     assert.equal(runs.length, 2);
@@ -346,12 +352,17 @@ test("migratePins retries on a bounded interval and stops after max attempts eve
     view.render(/** @type {any} */ ({}));
     assert.equal(runs.length, 2);
 
-    // Disconnect and reconnect -> attempt 3 (reaches cap).
+    // A disconnect and reconnect inside the interval does not retry early.
     now = 5100;
     currentTerminals = [];
     view.render(/** @type {any} */ ({}));
     now = 5200;
     currentTerminals = [{ address: "t1", state: "live", labels: {} }];
+    view.render(/** @type {any} */ ({}));
+    assert.equal(runs.length, 2);
+
+    // Next interval elapsed -> attempt 3 (reaches cap).
+    now = 10000;
     view.render(/** @type {any} */ ({}));
     assert.equal(runs.length, 3);
 

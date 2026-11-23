@@ -135,7 +135,7 @@ export default class Agents extends View {
     try { this.pendingPins = JSON.parse(localStorage.getItem("pins") ?? "[]"); } catch { this.pendingPins = []; }
     if (!Array.isArray(this.pendingPins)) this.pendingPins = [];
     if (!this.pendingPins.length) localStorage.removeItem("pins");
-    /** @type {Map<string, { attempts: number, at: number | null }>} */
+    /** @type {Map<string, { attempts: number, at: number }>} */
     this.migratingPins = new Map();
     // `herdr-app check` runs init() for real: a null cx keeps the meter from polling (exec, file reads).
     this.meter = new Meter(checking() ? null : cx, {
@@ -170,28 +170,25 @@ export default class Agents extends View {
 
   // Keep offline pins until their terminal returns, and keep each pending until
   // core echoes the label so a failed write doesn't erase the old pin.
-  // Retry a dropped migration on reconnect or after a bounded interval, capped
-  // so a permanent failure never retries forever.
+  // Retry a dropped migration after a bounded interval, capped so a permanent
+  // failure never retries forever.
   /**
    * @param {any[]} all
-   * @param {number} [now]
+   * @param {number} now
    */
-  migratePins(all, now = Date.now()) {
+  migratePins(all, now) {
     if (!this.pendingPins.length) return;
     const listed = new Map(all.filter((t) => t.state === "live").map((t) => [t.address, t]));
     const pending = this.pendingPins.filter((address) => {
       const terminal = listed.get(address);
       const state = this.migratingPins.get(address);
-      if (!terminal) {
-        if (state) state.at = null;
-        return true;
-      }
+      if (!terminal) return true;
       if (terminal.labels?.["herdr.pinned"]) {
         this.migratingPins.delete(address);
         return false;
       }
       const attempts = state?.attempts ?? 0;
-      const due = !state || state.at === null || now - state.at >= PIN_MIGRATION_RETRY_MS;
+      const due = !state || now - state.at >= PIN_MIGRATION_RETRY_MS;
       if (attempts < PIN_MIGRATION_MAX_ATTEMPTS && due) {
         this.migratingPins.set(address, { attempts: attempts + 1, at: now });
         run("terminal.pin", { terminal: address, pinned: true });

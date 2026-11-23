@@ -225,9 +225,8 @@ The behavior hunks:
    per render, `tree(byParent, addr, lead)` reads that map instead of filtering `all`, and a
    per-render `treeOf` cache reuses each tree for the nesting, urgency and sub-row passes.
    `collapsed` is `sidebarPx < 160` (the `narrow()` test) so `layout()` is read once.
-9. **`migratePins(all, now)`:** retries a dropped legacy `terminal.pin` migration on terminal
-   reconnect or after a 5-second interval (up to 3 attempts) instead of blocking further attempts
-   after the first send.
+9. **`migratePins(all, now)`:** retries a dropped legacy `terminal.pin` migration after a
+   5-second interval (up to 3 attempts) instead of blocking further attempts after the first send.
 
 The type annotations for `checkJs`, spread through the file: the `@typedef` imports at the top,
 JSDoc `@param`/`@returns`/`@type` on functions, closures and fields, `this.hovered = null` in
