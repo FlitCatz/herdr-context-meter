@@ -41,18 +41,19 @@ const { default: Agents, clean, title } = await import("../mods/herdr-context-me
 
 /** @param {Record<string, string>} saved */
 function runInit(saved) {
+  const store = { ...saved };
   const removed = [];
   globalThis.localStorage = {
-    getItem: (/** @type {string} */ k) => saved[k] ?? null,
-    setItem: () => {},
-    removeItem: (/** @type {string} */ k) => removed.push(k),
+    getItem: (/** @type {string} */ k) => store[k] ?? null,
+    setItem: (/** @type {string} */ k, /** @type {string} */ v) => { store[k] = v; },
+    removeItem: (/** @type {string} */ k) => { delete store[k]; removed.push(k); },
   };
   const timers = [];
   let polls = 0;
   const cx = { timer: { every: (/** @type {number} */ ms) => timers.push(ms) }, spawn: () => polls++, notify: () => {} };
   const view = new Agents();
   view.init({}, cx);
-  return { view, timers, polls, removed };
+  return { view, timers, polls, removed, store };
 }
 
 test("clean drops a status glyph and its separator", () => {
@@ -242,6 +243,131 @@ test("render reads layout once and indexes terminals by parent once while preser
     assert.ok(findEl(tree, (n) => n.props?.id === "sub-g1"), "grandchild g1 renders under c1");
     assert.equal(findEl(tree, (n) => n.props?.id === "sub-dead"), null, "non-live terminal is excluded");
   } finally {
+    delete globalThis.__checking;
+    delete /** @type {any} */ (globalThis).__herdrMock;
+  }
+});
+
+test("migratePins retries after a terminal reconnects during the first pin and completes once core echoes the label", () => {
+  globalThis.__checking = true;
+  let now = 1000;
+  const origNow = Date.now;
+  Date.now = () => now;
+  /** @type {{ cmd: string, args: any }[]} */
+  const runs = [];
+  /** @type {any[]} */
+  let currentTerminals = [{ address: "t1", state: "live", labels: {} }];
+  /** @type {any} */ (globalThis).__herdrMock = {
+    theme: () => ({ chrome: "#111", border: "#222", dim: "#666", foreground: "#eee", muted: "#999", selected: "#333", hover: "#222", working: "#eb0", blocked: "#e44", idle: "#777" }),
+    layout: () => ({ id: "sidebar", size: { px: 268 } }),
+    shared: () => undefined,
+    agents: () => [],
+    terminals: () => currentTerminals,
+    panes: () => [],
+    focused: () => ({}),
+    spaces: () => [],
+    run: (/** @type {string} */ cmd, /** @type {any} */ args) => { runs.push({ cmd, args }); },
+    setAgentOrder: () => {},
+  };
+  try {
+    const { view, removed } = runInit({ pins: '["t1"]' });
+
+    // First live render sends terminal.pin once.
+    view.render(/** @type {any} */ ({}));
+    assert.deepEqual(runs, [{ cmd: "terminal.pin", args: { terminal: "t1", pinned: true } }]);
+    assert.deepEqual(view.pendingPins, ["t1"]);
+
+    // An immediate next render while still live does not spam terminal.pin.
+    now = 1050;
+    view.render(/** @type {any} */ ({}));
+    assert.equal(runs.length, 1);
+
+    // Terminal disconnects before core applies the pin, then reconnects without the label.
+    now = 1100;
+    currentTerminals = [{ address: "t1", state: "offline", labels: {} }];
+    view.render(/** @type {any} */ ({}));
+    assert.equal(runs.length, 1);
+    assert.deepEqual(view.pendingPins, ["t1"]);
+
+    now = 1150;
+    currentTerminals = [{ address: "t1", state: "live", labels: {} }];
+    view.render(/** @type {any} */ ({}));
+    assert.equal(runs.length, 2, "reconnect must trigger a retry");
+
+    // Once core echoes the pinned label, migration finishes and clears saved pins.
+    now = 1200;
+    currentTerminals = [{ address: "t1", state: "live", labels: { "herdr.pinned": "true" } }];
+    view.render(/** @type {any} */ ({}));
+    assert.equal(runs.length, 2);
+    assert.deepEqual(view.pendingPins, []);
+    assert.ok(removed.includes("pins"));
+  } finally {
+    Date.now = origNow;
+    delete globalThis.__checking;
+    delete /** @type {any} */ (globalThis).__herdrMock;
+  }
+});
+
+test("migratePins retries on a bounded interval and stops after max attempts even across repeated reconnects", () => {
+  globalThis.__checking = true;
+  let now = 0;
+  const origNow = Date.now;
+  Date.now = () => now;
+  /** @type {{ cmd: string, args: any }[]} */
+  const runs = [];
+  /** @type {any[]} */
+  let currentTerminals = [{ address: "t1", state: "live", labels: {} }];
+  /** @type {any} */ (globalThis).__herdrMock = {
+    theme: () => ({ chrome: "#111", border: "#222", dim: "#666", foreground: "#eee", muted: "#999", selected: "#333", hover: "#222", working: "#eb0", blocked: "#e44", idle: "#777" }),
+    layout: () => ({ id: "sidebar", size: { px: 268 } }),
+    shared: () => undefined,
+    agents: () => [],
+    terminals: () => currentTerminals,
+    panes: () => [],
+    focused: () => ({}),
+    spaces: () => [],
+    run: (/** @type {string} */ cmd, /** @type {any} */ args) => { runs.push({ cmd, args }); },
+    setAgentOrder: () => {},
+  };
+  try {
+    const { view } = runInit({ pins: '["t1"]' });
+
+    // Attempt 1 at t=0 (also ensures timestamp 0 is not treated as unset).
+    view.render(/** @type {any} */ ({}));
+    assert.equal(runs.length, 1);
+
+    // Still inside retry interval -> no retry yet.
+    now = 1000;
+    view.render(/** @type {any} */ ({}));
+    assert.equal(runs.length, 1);
+
+    // Retry interval elapsed while terminal stayed live without echoing label -> attempt 2.
+    now = 5000;
+    view.render(/** @type {any} */ ({}));
+    assert.equal(runs.length, 2);
+
+    // Disconnect and reconnect -> attempt 3 (reaches cap).
+    now = 5100;
+    currentTerminals = [];
+    view.render(/** @type {any} */ ({}));
+    now = 5200;
+    currentTerminals = [{ address: "t1", state: "live", labels: {} }];
+    view.render(/** @type {any} */ ({}));
+    assert.equal(runs.length, 3);
+
+    // Further reconnects and long elapsed intervals never retry past the bound.
+    for (let i = 0; i < 5; i++) {
+      now += 10000;
+      currentTerminals = [];
+      view.render(/** @type {any} */ ({}));
+      now += 10000;
+      currentTerminals = [{ address: "t1", state: "live", labels: {} }];
+      view.render(/** @type {any} */ ({}));
+    }
+    assert.equal(runs.length, 3, "pin migration must stop after bounded attempts");
+    assert.deepEqual(view.pendingPins, ["t1"], "unconfirmed legacy pin stays preserved");
+  } finally {
+    Date.now = origNow;
     delete globalThis.__checking;
     delete /** @type {any} */ (globalThis).__herdrMock;
   }

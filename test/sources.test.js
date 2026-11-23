@@ -41,7 +41,7 @@ function head(/** @type {string} */ path, /** @type {number} */ bytes) {
  * A host with fake programs. `files` maps the path a program is asked for to a real file;
  * `calls` records every program run, so tests can check what was (not) asked.
  * @param {{ hc?: Record<string, unknown>, sessions?: Record<string, unknown>, textFiles?: Record<string, string>,
- *   files?: Record<string, string>, ps?: string, lsof?: string, find?: string,
+ *   files?: Record<string, string>, ps?: string, lsof?: string, lsofCode?: number, lsofStderr?: string, find?: string,
  *   execFails?: (command: string, args: string[]) => Error | null }} [spec]
  */
 function fakeHost(spec = {}) {
@@ -63,7 +63,7 @@ function fakeHost(spec = {}) {
         return file ? { code: 0, stdout: head(file, Number(args[1])), stderr: "" } : { code: 1, stdout: "", stderr: "no such file" };
       }
       if (command === PROGRAMS.ps) return { code: 0, stdout: spec.ps ?? "", stderr: "" };
-      if (command === PROGRAMS.lsof) return { code: 1, stdout: spec.lsof ?? "", stderr: "" };
+      if (command === PROGRAMS.lsof) return { code: spec.lsofCode ?? 1, stdout: spec.lsof ?? "", stderr: spec.lsofStderr ?? "" };
       if (command === PROGRAMS.find) return { code: 0, stdout: spec.find ?? "", stderr: "" };
       throw new Error(`unexpected program ${command}`);
     },
@@ -526,4 +526,48 @@ test("Agy: a timed-out transcript read says so instead of no usage yet", async (
   });
   const entries = await readAll(host, [agyAgent("t1")], ctx());
   assert.deepEqual(entries.get("t1"), { state: "na", reason: "read timed out", kind: "agy" });
+});
+
+test("lsof: exit 1 with valid partial output still yields the listed sessions", async () => {
+  const rollout = "/home/fake/.codex/sessions/2026/11/12/rollout-a.jsonl";
+  const host = fakeHost({
+    hc: { t5: terminal(100), t6: terminal(200) },
+    ps: "100 1\n200 1\n",
+    lsofCode: 1,
+    lsof: `p100\nfcwd\nn/work\nn${rollout}\n`,
+    lsofStderr: "lsof: WARNING: can't stat() tmpfs file system /tmp\n",
+    files: { [rollout]: CODEX },
+  });
+  const entries = await readAll(host, [codexAgent("t5"), codexAgent("t6")], ctx());
+  assert.equal(entries.get("t5")?.state, "ok");
+  assert.equal(entries.get("t5")?.state === "ok" && entries.get("t5").used, 120170);
+  assert.deepEqual(entries.get("t6"), { state: "na", reason: "session file not found", kind: "codex" });
+});
+
+test("lsof: non-zero exit with no PID records reports a classified read failure instead of session file not found", async () => {
+  const cases = [
+    { lsofCode: 1, lsof: "", lsofStderr: "lsof: permission denied\n", reason: "read failed: permission denied" },
+    { lsofCode: 1, lsof: "", lsofStderr: "lsof: Operation not permitted\n", reason: "read failed: permission denied" },
+    { lsofCode: 1, lsof: "", lsofStderr: "lsof: illegal process ID: bad\nusage: lsof [-?abhln]\n", reason: "read failed: invalid lsof arguments" },
+    { lsofCode: 1, lsof: "", lsofStderr: "lsof: command timed out\n", reason: "read timed out" },
+    { lsofCode: 1, lsof: "", lsofStderr: "", reason: "read failed" },
+    { lsofCode: 2, lsof: "permission denied\n", lsofStderr: "lsof: permission denied\n", reason: "read failed: permission denied" },
+  ];
+  for (const c of cases) {
+    const host = fakeHost({
+      hc: { t1: terminal(500), t5: terminal(100), t6: terminal(200, ["agy"]) },
+      sessions: { 500: { pid: 500, sessionId: SESSION } },
+      find: `${transcriptPath}\n`,
+      ps: "100 1\n200 1\n",
+      lsofCode: c.lsofCode,
+      lsof: c.lsof,
+      lsofStderr: c.lsofStderr,
+      files: { [transcriptPath]: CLAUDE },
+    });
+    const entries = await readAll(host, [claudeAgent("t1"), codexAgent("t5"), agyAgent("t6")], ctx());
+    assert.equal(entries.get("t1")?.state, "ok", "Claude must stay unaffected by lsof failure");
+    assert.deepEqual(entries.get("t5"), { state: "na", reason: c.reason, kind: "codex" }, c.lsofStderr || `code ${c.lsofCode}`);
+    assert.deepEqual(entries.get("t6"), { state: "na", reason: c.reason, kind: "agy" }, c.lsofStderr || `code ${c.lsofCode}`);
+  }
+  assert.equal(parseLsof("permission denied\nnot a pid\n").size, 0);
 });
