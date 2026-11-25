@@ -73,6 +73,20 @@ test("clean strips Codex's blinking [ ! ] / [ . ] mark", () => {
   assert.equal(clean("[ . ] fix login"), "fix login");
 });
 
+test("clean preserves leading emojis while stripping spinners and known status marks", () => {
+  assert.equal(clean("🔴 login"), "🔴 login");
+  assert.equal(clean("✦ 🔴 login"), "🔴 login");
+  assert.equal(clean("⠋ - 🔴 login"), "🔴 login");
+  assert.equal(clean("❤️ deploy"), "❤️ deploy");
+  assert.equal(clean("✦ ❤️ deploy"), "❤️ deploy");
+  assert.equal(clean("#️⃣ tags"), "#️⃣ tags");
+  assert.equal(clean("*️⃣ notes"), "*️⃣ notes");
+  assert.equal(clean("[ ! ] 🔴 login"), "🔴 login");
+  assert.equal(clean("✋ Waiting"), "Waiting");
+  assert.equal(clean("⏳ Thinking"), "Thinking");
+  assert.equal(clean("⏳️ Thinking"), "Thinking");
+});
+
 test("title uses a telling live title, but not one that is the terminal's own id or address", () => {
   const tab = { name: "shell", named: false };
   assert.equal(title(tab, { terminal: "t_1", title: "fix login" }), "fix login");
@@ -95,15 +109,15 @@ test("init keeps valid saved values", () => {
   assert.deepEqual(removed, []);
 });
 
-test("init starts the meter polling unless Herdr is checking the mod", () => {
+test("init registers meter and refresh timers normally, and skips both while Herdr is checking the mod", () => {
   globalThis.__checking = false;
   const live = runInit({});
-  assert.equal(live.timers.length, 2);
+  assert.deepEqual(live.timers, [5000, 30000]);
   assert.equal(live.polls, 1);
   globalThis.__checking = true;
   try {
     const checked = runInit({});
-    assert.equal(checked.timers.length, 1);
+    assert.deepEqual(checked.timers, []);
     assert.equal(checked.polls, 0);
   } finally {
     delete globalThis.__checking;
@@ -379,6 +393,115 @@ test("migratePins retries on a bounded interval and stops after max attempts eve
     assert.deepEqual(view.pendingPins, ["t1"], "unconfirmed legacy pin stays preserved");
   } finally {
     Date.now = origNow;
+    delete globalThis.__checking;
+    delete /** @type {any} */ (globalThis).__herdrMock;
+  }
+});
+
+test("render keeps kept sub-agent done status on its subRow and fold badge without escalating a working parent", () => {
+  globalThis.__checking = true;
+  const t = { chrome: "#111", border: "#222", dim: "#666", foreground: "#eee", muted: "#999", selected: "#333", hover: "#222", working: "#eb0", blocked: "#e44", done: "#4a9", idle: "#777", raised: "#222", input: "#444" };
+  /** @type {string[]} */
+  let agentOrder = [];
+  /** @type {any} */ (globalThis).__herdrMock = {
+    theme: () => t,
+    layout: () => ({ id: "sidebar", size: { px: 268 } }),
+    shared: (/** @type {string} */ k) => (k === "agents.sort" ? "priority" : undefined),
+    agents: () => [
+      { address: "p1", space: "s1", space_name: "one", tab: "tab1", pane: "pane1", status: "working", seq: 1, pinned: false, focused: false, program: { name: "Claude Code" } },
+      { address: "k1", space: "s1", space_name: "one", tab: "tab1", pane: "pane2", status: "done", seq: 2, pinned: false, focused: false, program: { name: "Claude Code" } },
+      { address: "p2", space: "s2", space_name: "two", tab: "tab2", pane: "pane3", status: "done", seq: 3, pinned: false, focused: false, program: { name: "Claude Code" } },
+      { address: "p3", space: "s3", space_name: "three", tab: "tab3", pane: "pane4", status: "working", seq: 4, pinned: false, focused: false, program: { name: "Claude Code" } },
+    ],
+    terminals: () => [
+      { address: "p1", parent: null, state: "live", status: "working", program: { name: "Claude Code" } },
+      { address: "k1", parent: "p1", state: "live", status: "done", name: "kept-done", program: { name: "Claude Code" } },
+      { address: "u1", parent: "p1", state: "live", status: "done", name: "unkept-done", program: { name: "Codex" } },
+      { address: "p2", parent: null, state: "live", status: "done", program: { name: "Claude Code" } },
+      { address: "p3", parent: null, state: "live", status: "working", program: { name: "Claude Code" } },
+      { address: "e1", parent: "p3", state: "live", status: "error", name: "unkept-err", program: { name: "Codex" } },
+    ],
+    panes: () => [],
+    focused: () => ({}),
+    spaces: () => [],
+    setAgentOrder: (/** @type {string[]} */ order) => { agentOrder = order; },
+  };
+  try {
+    const { view } = runInit({});
+    const tree = view.render(/** @type {any} */ ({}));
+
+    // p3 (working + unkept error -> blocked, rank 4) > p2 (done, rank 3) > p1 (working + kept done, stays rank 2).
+    assert.deepEqual(agentOrder, ["p3", "p2", "p1"]);
+
+    const [agList] = findEl(tree, (n) => n.props?.id === "ag-list") ?? [];
+    const ids = agList.kids.map((/** @type {any} */ n) => n.props?.id);
+    assert.ok(ids.indexOf("sec-2") !== -1 && ids.indexOf("sec-2") < ids.indexOf("ag-p1"), "p1 stays under Working (sec-2)");
+    assert.ok(ids.indexOf("sec-3") < ids.indexOf("ag-p2") && ids.indexOf("ag-p2") < ids.indexOf("sec-2"), "p2 is the only Done (sec-3) agent");
+
+    // Kept sub-agent k1 renders a filled done dot (bg = t.done, no border); unkept u1 renders an idle ring (border = 1.5).
+    const [subK1] = findEl(tree, (n) => n.props?.id === "sub-k1") ?? [];
+    const k1Status = subK1.kids.at(-1);
+    assert.equal(k1Status.props.bg, t.done, "kept done sub-agent should render filled done dot");
+    assert.equal(k1Status.props.border, undefined, "kept done sub-agent should not render idle ring");
+
+    const [subU1] = findEl(tree, (n) => n.props?.id === "sub-u1") ?? [];
+    const u1Status = subU1.kids.at(-1);
+    assert.equal(u1Status.props.border, 1.5, "unkept done sub-agent should still render idle ring");
+    assert.equal(u1Status.props.bg, undefined);
+
+    // Folding p1 shows its sub-agent count badge colored with t.done (from kept child k1).
+    const [foldBtn] = findEl(tree, (n) => n.props?.id === "fold-p1") ?? [];
+    foldBtn.props.on_click({}, { stop_propagation() {}, notify() {} });
+    const foldedTree = view.render(/** @type {any} */ ({}));
+    const [foldedBadge] = findEl(foldedTree, (n) => n.props?.id === "fold-p1") ?? [];
+    assert.equal(foldedBadge.props.text_color, t.done, "folded count badge should take done color from kept child");
+  } finally {
+    delete globalThis.__checking;
+    delete /** @type {any} */ (globalThis).__herdrMock;
+  }
+});
+
+test("render highlights the focused agent in the collapsed rail while keeping rail bars intact", () => {
+  globalThis.__checking = true;
+  const t = { chrome: "#111", border: "#222", dim: "#666", foreground: "#eee", muted: "#999", selected: "#333", hover: "#222", working: "#eb0", blocked: "#e44", done: "#4a9", idle: "#777" };
+  /** @type {any} */ (globalThis).__herdrMock = {
+    theme: () => t,
+    layout: () => ({ id: "sidebar", size: { px: 76 } }),
+    shared: (/** @type {string} */ k) => (k === "agents.sort" ? "priority" : undefined),
+    agents: () => [
+      { address: "a1", space: "s1", space_name: "aurora-web", tab: "tab1", pane: "p1", status: "working", seq: 2, pinned: false, focused: true, program: { name: "Claude Code" } },
+      { address: "a2", space: "s2", space_name: "cobalt-api", tab: "tab2", pane: "p2", status: "idle", seq: 1, pinned: false, focused: false, program: { name: "Claude Code" } },
+    ],
+    terminals: () => [],
+    panes: () => [],
+    focused: () => ({ agent: "a1" }),
+    spaces: () => [],
+    setAgentOrder: () => {},
+  };
+  try {
+    const { view } = runInit({});
+    const tree = view.render(/** @type {any} */ ({}));
+
+    const [focusedRow] = findEl(tree, (n) => n.props?.id === "ag-a1") ?? [];
+    const [unfocusedRow] = findEl(tree, (n) => n.props?.id === "ag-a2") ?? [];
+    assert.ok(focusedRow && unfocusedRow, "collapsed rail rows should render");
+
+    for (const row of [focusedRow, unfocusedRow]) {
+      assert.equal(row.props.mx, 6);
+      assert.equal(row.props.px, 2);
+      assert.equal(row.props.rounded, 6);
+    }
+    assert.equal(focusedRow.props.bg, t.selected, "focused collapsed rail row gets selected background");
+    assert.equal(unfocusedRow.props.bg, undefined, "unfocused collapsed rail row has no selected background");
+
+    const [idx1] = findEl(focusedRow, (n) => n.kids?.[0] === "1") ?? [];
+    const [idx2] = findEl(unfocusedRow, (n) => n.kids?.[0] === "2") ?? [];
+    assert.equal(idx1.props.text_color, t.foreground, "focused rail index uses foreground color");
+    assert.equal(idx2.props.text_color, t.muted, "unfocused rail index uses muted color");
+
+    assert.ok(findEl(focusedRow, (n) => n.props?.id === "ctx-rail-a1"), "focused rail row keeps context bar");
+    assert.ok(findEl(unfocusedRow, (n) => n.props?.id === "ctx-rail-a2"), "unfocused rail row keeps context bar");
+  } finally {
     delete globalThis.__checking;
     delete /** @type {any} */ (globalThis).__herdrMock;
   }
