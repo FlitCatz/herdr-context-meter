@@ -195,7 +195,7 @@ Requires Herdr 0.1.16 or later (`main.js` imports `checking` from `herdr`).
 ### Re-syncing with Herdr updates
 
 Herdr overwrites its shipped `~/.config/herdr-app/mods/agents/main.js` on every app start, while
-cloned mods stay untouched. `mod.json` records `cloned_from` (`agents` `0.1.16`). To keep re-syncing
+cloned mods stay untouched. `mod.json` records `cloned_from` (`agents` `0.1.18`). To keep re-syncing
 simple, all meter polling/rendering lives in `meter.js` and space-tag/label helpers live in
 `tags.js`. `main.js` differs from the shipped `agents/main.js` in two kinds of change.
 
@@ -203,17 +203,20 @@ The behavior hunks:
 
 1. **Imports:** `import { Meter } from "./meter.js";` and `import { agentRowName, SPACE_TAG_FONT_SIZE, SPACE_TAG_GAP, SPACE_TAG_H, SPACE_TAG_RADIUS, SPACE_TAG_W, spaceColor, spaceTagText } from "./tags.js";`,
    plus `checking`, `exec`, `hc`, `home`, `readTextFile` from `"herdr"`.
-2. **`init(_props, cx)`:** instantiates `this.meter = new Meter(checking() ? null : cx, { ui: { div, h_flex }, host: { exec, hc, readTextFile, home: home() }, agents, props })`;
-   a `null` `cx` keeps the meter from polling (exec, file reads) while `herdr-app check` runs `init()`.
+2. **`init(_props, cx)`:** instantiates `this.meter = new Meter(checking() ? null : cx, { ui: { div, h_flex }, host: { exec, hc, readTextFile, home: home() }, agents, props })`
+   and guards the 30-second redraw timer with `if (!checking()) cx.timer.every(30000, (cx) => cx.notify())`;
+   skipping both while `herdr-app check` runs `init()` prevents background polling (exec, file reads)
+   and avoids a stranded-timer warning when `check` tears down.
 3. **`render()` — `this.listed` & tags:** maps each address to its `AgentInfo` instead of its status
-   (`kidStatus` reads `listed.get(k.address)?.status`), and computes
-   `spaceColors = shared("space.colors") ?? {}`.
+   (`kidStatus` checks `const kept = listed.get(k.address); if (kept) return kept.status;` so kept
+   sub-agents keep `"done"`), and computes `spaceColors = shared("space.colors") ?? {}`.
 4. **`subRow(t, s, shown, compact, sidebarPx)`:** `const kept = this.listed.get(k.address)`; the
    click tests `kept`, `.when(Boolean(kept), (el) => el.child(this.meter.subReading(t, kept, sidebarPx)))`
    goes before the status, and the status is compact when `compact || Boolean(kept)`. `render()`
    reads `sidebarPx` from the sidebar's `size.px` in `layout()` and passes it to each `subRow`.
 5. **`row(a, i, subs)` — collapsed branch:** wraps the index + status `h_flex()` in a `v_flex()`
-   (`h(30)`, `justify_center()`, `gap(3)`) with `.child(this.meter.railBar(t, a))` underneath.
+   (`h(30)`, `mx(6)`, `px(2)`, `rounded(6)`, `justify_center()`, `gap(3)`, keeping the focused
+   `t.selected` highlight) with `.child(this.meter.railBar(t, a))` underneath.
 6. **`row(a, i, subs)` — expanded branch:** in Priority/Pinned rows (`byPriority || isPinned`),
    prepends the colored space-tag badge (`spaceColor` + `spaceTagText(a.space_name)`), puts `agentRowName`
    in the primary slot, and attaches `tooltip(a.space_name)` to the badge; moves elapsed time

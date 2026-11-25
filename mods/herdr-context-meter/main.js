@@ -41,9 +41,10 @@ function toggleSidebar() {
 
 // Drops what an agent puts before its title: a status glyph or spinner and the separator
 // after it ("✦  Working", "⠋ - Thinking"), and Codex's blinking "[ ! ] " / "[ . ] " mark.
-// Stops at an opening bracket or quote, so a title that starts with one ("[web] login") keeps it.
+// Stops at an opening bracket or quote, so a title that starts with one ("[web] login") keeps it,
+// and at an emoji ("🔴 login", "❤️ deploy"), except for known status marks.
 /** @param {string | null | undefined} s */
-export const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}\p{Ps}\p{Pi}]+/u, "").replace(/^\[ [!.] \] /, "").trim();
+export const clean = (s) => (s ?? "").replace(/^(?:\[ [!.] \] |[✋⏳]\uFE0F?(?=\s)|(?!(?:\p{Emoji}\uFE0F|[#*]\u20E3))[^\p{L}\p{N}\p{Ps}\p{Pi}\p{Emoji_Presentation}])+/u, "").trim();
 
 /** @param {PaneInfo[]} all */
 function leadPanes(all) {
@@ -74,13 +75,16 @@ export function title(tab, l) {
 const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
 // A sub-agent without a pane isn't in agents(): its raw word, error counting as
 // blocked. It's never done: it reports to its parent, and the parent's done is the news.
+// A kept sub-agent (one with a pane) is in agents() too: it keeps its own status, done included.
 /**
  * @param {any} k
  * @param {Map<string, AgentInfo>} listed
  * @returns {string}
  */
 const kidStatus = (k, listed) => {
-  const s = listed.get(k.address)?.status ?? k.status;
+  const kept = listed.get(k.address);
+  if (kept) return kept.status;
+  const s = k.status;
   return s === "error" ? "blocked" : s === "done" ? "idle" : s;
 };
 const SORTS = [
@@ -137,14 +141,14 @@ export default class Agents extends View {
     if (!this.pendingPins.length) localStorage.removeItem("pins");
     /** @type {Map<string, { attempts: number, at: number }>} */
     this.migratingPins = new Map();
-    // `herdr-app check` runs init() for real: a null cx keeps the meter from polling (exec, file reads).
+    // `herdr-app check` runs init() for real: skip polling (exec, file reads) and timers while checking.
     this.meter = new Meter(checking() ? null : cx, {
       ui: { div, h_flex },
       host: { exec, hc, readTextFile, home: home() },
       agents,
       props,
     });
-    cx.timer.every(30000, (cx) => cx.notify());
+    if (!checking()) cx.timer.every(30000, (cx) => cx.notify());
   }
 
   // Stamps agents whose state changed. Done and idle count as one: looking at a
@@ -364,7 +368,10 @@ export default class Agents extends View {
     const tabCounts = new Map();
     for (const a of list) tabCounts.set(a.tab, (tabCounts.get(a.tab) ?? 0) + 1);
     const byPriority = sort.id === "priority";
-    const urgency = new Map(list.map((a) => [a.address, Math.max(this.rank(a), ...treeOf(a.address).map((s) => RANK[kidStatus(s.t, this.listed)] ?? 0))]));
+    // A helper's done is its own row's news: it doesn't pull a working parent out of Working.
+    /** @param {any} k */
+    const kidRank = (k) => { const s = kidStatus(k, this.listed); return RANK[s === "done" ? "idle" : s] ?? 0; };
+    const urgency = new Map(list.map((a) => [a.address, Math.max(this.rank(a), ...treeOf(a.address).map((s) => kidRank(s.t)))]));
     /** @param {AgentInfo} a */
     const rankOf = (a) => urgency.get(a.address);
     if (byPriority) list = [...list].sort((x, y) => rankOf(y) - rankOf(x) || this.since(y) - this.since(x) || y.seq - x.seq);
@@ -450,17 +457,20 @@ export default class Agents extends View {
         return v_flex()
           .id(`ag-${a.address}`)
           .h(30)
-          .px(8)
+          .mx(6)
+          .px(2)
+          .rounded(6)
           .flex_none()
           .justify_center()
           .gap(3)
+          .when(a.focused, (el) => el.bg(t.selected))
           .hover((s) => s.bg(t.hover))
           .on_click(() => run("pane.focus", { pane: a.pane }))
           .child(
             h_flex()
               .items_center()
               .gap(4)
-              .child(div().flex_1().min_w(0).whitespace_nowrap().text_right().text_color(t.muted).child(String(i + 1)))
+              .child(div().flex_1().min_w(0).whitespace_nowrap().text_right().text_color(a.focused ? t.foreground : t.muted).child(String(i + 1)))
               .child(h_flex().w(14).flex_none().items_center().justify_center().child(this.status(t, a, true))),
           )
           .child(this.meter.railBar(t, a));
